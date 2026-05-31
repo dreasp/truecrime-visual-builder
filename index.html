@@ -445,9 +445,9 @@ let selectedCards = new Set();
 
 /* ── FAL.AI CONFIG ── */
 // Image model: fal-ai/flux-pro  Video model: fal-ai/kling-video/v1.6/standard/image-to-video
-const IMG_MODEL = 'fal-ai/flux-pro/v2';
+const IMG_MODEL = 'fal-ai/flux/schnell';
 const VID_MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
-const IMG_PRICES = { low: 0.025, medium: 0.025, high: 0.05 };
+const IMG_PRICES = { low: 0.003, medium: 0.025, high: 0.05 };
 const VID_PRICES = { 5: 0.14, 10: 0.28 };
 
 /* ── DEMO SCRIPT ── */
@@ -608,41 +608,39 @@ async function falRequest(modelId, input) {
 }
 
 async function generateImage(prompt) {
-  const quality = document.getElementById('imgQuality').value;
-  const stepsMap = { low: 20, medium: 28, high: 40 };
+  const size = aspectRatio === 'portrait' ? 'portrait_9_16' : 'landscape_16_9';
 
-  // Primary: Flux Pro — fast, cheap ($0.025/image), great with descriptive prompts
-  try {
-    const result = await falRequest('fal-ai/flux-pro/v2', {
-      prompt: prompt,
-      image_size: aspectRatio === 'portrait' ? 'portrait_9_16' : 'landscape_16_9',
-      num_inference_steps: stepsMap[quality],
-      guidance_scale: 3.5,
-      num_images: 1,
-      safety_tolerance: '5'
-    });
-    const url = extractImageUrl(result);
-    if (url) return url;
-  } catch(e) {
-    console.warn('Flux Pro failed:', e.message);
+  // Try direct synchronous calls — fastest, no queue polling needed
+  const models = [
+    { id: 'fal-ai/flux/schnell', body: { prompt, image_size: size, num_inference_steps: 4, num_images: 1 } },
+    { id: 'fal-ai/flux-pro/v2',  body: { prompt, image_size: size, num_inference_steps: 20, guidance_scale: 3.5, num_images: 1, safety_tolerance: '5' } },
+    { id: 'fal-ai/flux/dev',     body: { prompt, image_size: size, num_inference_steps: 20, guidance_scale: 3.5, num_images: 1 } }
+  ];
+
+  for (const m of models) {
+    try {
+      // Direct call — returns immediately when model is warm (~2-5 seconds)
+      const res = await fetch('https://fal.run/' + m.id, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
+        body: JSON.stringify(m.body)
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        if (res.status === 401 || res.status === 403) throw new Error('Auth error ' + res.status + ': ' + txt);
+        console.warn(m.id + ' returned ' + res.status + ', trying next model');
+        continue;
+      }
+      const data = await res.json();
+      const url = extractImageUrl(data);
+      if (url) { console.log('Generated with ' + m.id); return url; }
+    } catch(e) {
+      if (e.message.startsWith('Auth error')) throw e;
+      console.warn(m.id + ' failed:', e.message);
+    }
   }
 
-  // Fallback: Flux Dev
-  try {
-    const result = await falRequest('fal-ai/flux/dev', {
-      prompt: prompt,
-      image_size: aspectRatio === 'portrait' ? 'portrait_9_16' : 'landscape_16_9',
-      num_inference_steps: stepsMap[quality],
-      guidance_scale: 3.5,
-      num_images: 1
-    });
-    const url = extractImageUrl(result);
-    if (url) return url;
-  } catch(e) {
-    console.warn('Flux Dev failed:', e.message);
-  }
-
-  throw new Error('Image generation failed. Check your FAL.ai credits at fal.ai/dashboard');
+  throw new Error('All image models failed. Check your FAL.ai API key and credits at fal.ai/dashboard');
 }
 
 function extractImageUrl(result) {
