@@ -363,6 +363,25 @@ select{width:100%;background:var(--bg3);border:1px solid var(--border);border-ra
   </div>
 </div>
 
+<!-- Lightbox -->
+<div id="lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:500;align-items:center;justify-content:center;cursor:zoom-out;" onclick="closeLightbox()">
+  <div style="position:relative;max-width:92vw;max-height:92vh;display:flex;flex-direction:column;align-items:center;gap:10px;">
+    <img id="lightboxImg" src="" alt="" style="max-width:92vw;max-height:80vh;object-fit:contain;border-radius:8px;display:none;">
+    <video id="lightboxVid" src="" style="max-width:92vw;max-height:80vh;border-radius:8px;display:none;" controls autoplay loop muted></video>
+    <div id="lightboxBoth" style="display:none;gap:12px;align-items:flex-start;flex-wrap:wrap;justify-content:center;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+        <span style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--gold);text-transform:uppercase;letter-spacing:.06em;">Photo</span>
+        <img id="lightboxBothImg" src="" alt="" style="max-width:44vw;max-height:75vh;object-fit:contain;border-radius:8px;">
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+        <span style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;">Video</span>
+        <video id="lightboxBothVid" src="" style="max-width:44vw;max-height:75vh;border-radius:8px;" controls autoplay loop muted></video>
+      </div>
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);font-family:'IBM Plex Mono',monospace;">click anywhere to close</div>
+  </div>
+</div>
+
 <!-- Edit Modal -->
 <div class="modal-veil" id="editModal">
   <div class="modal-box">
@@ -426,9 +445,9 @@ let selectedCards = new Set();
 
 /* ── FAL.AI CONFIG ── */
 // Image model: fal-ai/flux-pro  Video model: fal-ai/kling-video/v1.6/standard/image-to-video
-const IMG_MODEL = 'fal-ai/gemini-flash-1-5-image-generation';
+const IMG_MODEL = 'fal-ai/flux-pro/v2';
 const VID_MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
-const IMG_PRICES = { low: 0.025, medium: 0.05, high: 0.08 };
+const IMG_PRICES = { low: 0.025, medium: 0.025, high: 0.05 };
 const VID_PRICES = { 5: 0.14, 10: 0.28 };
 
 /* ── DEMO SCRIPT ── */
@@ -589,40 +608,41 @@ async function falRequest(modelId, input) {
 }
 
 async function generateImage(prompt) {
-  // Try Gemini image generation first — best for natural language scene descriptions
-  const geminiModels = [
-    'fal-ai/gemini-flash-1-5-image-generation',
-    'fal-ai/gemini-pro-image-generation',
-    'fal-ai/ideogram/v3'
-  ];
+  const quality = document.getElementById('imgQuality').value;
+  const stepsMap = { low: 20, medium: 28, high: 40 };
 
-  for (const model of geminiModels) {
-    try {
-      const result = await falRequest(model, {
-        prompt: prompt,
-        aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9',
-        num_images: 1
-      });
-      const url = extractImageUrl(result);
-      if (url) return url;
-    } catch(e) {
-      console.warn('Model ' + model + ' failed:', e.message);
-      continue;
-    }
+  // Primary: Flux Pro — fast, cheap ($0.025/image), great with descriptive prompts
+  try {
+    const result = await falRequest('fal-ai/flux-pro/v2', {
+      prompt: prompt,
+      image_size: aspectRatio === 'portrait' ? 'portrait_9_16' : 'landscape_16_9',
+      num_inference_steps: stepsMap[quality],
+      guidance_scale: 3.5,
+      num_images: 1,
+      safety_tolerance: '5'
+    });
+    const url = extractImageUrl(result);
+    if (url) return url;
+  } catch(e) {
+    console.warn('Flux Pro failed:', e.message);
   }
 
-  // Final fallback: Flux
-  const result = await falRequest('fal-ai/flux-pro/v2', {
-    prompt: prompt,
-    image_size: aspectRatio === 'portrait' ? 'portrait_9_16' : 'landscape_16_9',
-    num_inference_steps: 28,
-    guidance_scale: 3.5,
-    num_images: 1,
-    safety_tolerance: '5'
-  });
-  const url = extractImageUrl(result);
-  if (url) return url;
-  throw new Error('All image models failed. Check your FAL.ai credits at fal.ai/dashboard');
+  // Fallback: Flux Dev
+  try {
+    const result = await falRequest('fal-ai/flux/dev', {
+      prompt: prompt,
+      image_size: aspectRatio === 'portrait' ? 'portrait_9_16' : 'landscape_16_9',
+      num_inference_steps: stepsMap[quality],
+      guidance_scale: 3.5,
+      num_images: 1
+    });
+    const url = extractImageUrl(result);
+    if (url) return url;
+  } catch(e) {
+    console.warn('Flux Dev failed:', e.message);
+  }
+
+  throw new Error('Image generation failed. Check your FAL.ai credits at fal.ai/dashboard');
 }
 
 function extractImageUrl(result) {
@@ -962,8 +982,6 @@ function renderAllCards() {
 }
 
 function cardHTML(seg, i) {
-  const media = seg.userMedia || seg.vidURL || seg.imgURL;
-  const isVideo = (seg.vidURL && !seg.userMedia) || (seg.userMedia && seg.userMediaName && seg.userMediaName.match(/\.(mp4|webm|mov)$/i));
   const ratioClass = aspectRatio === 'portrait' ? 'portrait' : 'landscape';
   const isSelected = selectedCards.has(i);
 
@@ -974,10 +992,13 @@ function cardHTML(seg, i) {
     } else {
       imgInner = `<img src="${seg.userMedia}" alt="Seg ${i+1}"><div class="seg-img-overlay"></div>`;
     }
+  } else if (seg.imgURL && seg.vidURL) {
+    // Both photo AND video exist — show photo with video badge, click opens both in lightbox
+    imgInner = `<img src="${seg.imgURL}" alt="Seg ${i+1}" style="width:100%;height:100%;object-fit:cover;"><div class="seg-img-overlay"></div>`;
   } else if (seg.vidURL) {
     imgInner = `<video src="${seg.vidURL}" style="width:100%;height:100%;object-fit:cover;" muted loop autoplay playsinline></video><div class="seg-img-overlay"></div>`;
   } else if (seg.imgURL) {
-    imgInner = `<img src="${seg.imgURL}" alt="Seg ${i+1}"><div class="seg-img-overlay"></div>`;
+    imgInner = `<img src="${seg.imgURL}" alt="Seg ${i+1}" style="width:100%;height:100%;object-fit:cover;"><div class="seg-img-overlay"></div>`;
   } else if (seg._genImg || seg._genVid) {
     imgInner = `<div class="seg-img-placeholder"><div class="spinner"></div><span>${seg._genVid ? 'Generating video...' : 'Generating image...'}</span></div>`;
   } else if (seg._errImg || seg._errVid) {
@@ -989,7 +1010,7 @@ function cardHTML(seg, i) {
   const typeClass = {scene:'pill-scene',action:'pill-action',emotion:'pill-emotion',evidence:'pill-evidence'}[seg.type]||'pill-scene';
 
   return `<div class="seg-card${seg._genImg||seg._genVid?' generating':''}${isSelected?' selected':''}" id="card-${i}">
-    <div class="seg-img-wrap ${ratioClass}">
+    <div class="seg-img-wrap ${ratioClass}" style="${(seg.imgURL||seg.vidURL||seg.userMedia)?'cursor:zoom-in;':''}" onclick="${(seg.imgURL||seg.vidURL||seg.userMedia)?'event.stopPropagation();openLightbox('+i+')':''}">
       ${imgInner}
       <div class="seg-num-badge">SEG ${i+1}</div>
       ${seg.vidURL ? '<div class="seg-video-badge">&#9654; VIDEO</div>' : ''}
@@ -1197,6 +1218,52 @@ function addBlank(i) {
 function addSegAtEnd() { addBlank(segs.length); }
 
 /* ── EXPORT ── */
+function openLightbox(i) {
+  const seg = segs[i];
+  const lb = document.getElementById('lightbox');
+  const img = document.getElementById('lightboxImg');
+  const vid = document.getElementById('lightboxVid');
+  const both = document.getElementById('lightboxBoth');
+  const bothImg = document.getElementById('lightboxBothImg');
+  const bothVid = document.getElementById('lightboxBothVid');
+
+  // Hide all first
+  img.style.display = 'none';
+  vid.style.display = 'none';
+  both.style.display = 'none';
+  img.src = ''; vid.src = '';
+  bothImg.src = ''; bothVid.src = '';
+
+  const hasImg = seg.userMedia || seg.imgURL;
+  const hasVid = seg.vidURL;
+
+  if (hasImg && hasVid) {
+    // Show both side by side
+    bothImg.src = seg.userMedia || seg.imgURL;
+    bothVid.src = seg.vidURL;
+    both.style.display = 'flex';
+  } else if (hasVid) {
+    vid.src = seg.vidURL;
+    vid.style.display = 'block';
+  } else if (hasImg) {
+    img.src = seg.userMedia || seg.imgURL;
+    img.style.display = 'block';
+  } else {
+    return; // nothing to show
+  }
+
+  lb.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox() {
+  const lb = document.getElementById('lightbox');
+  lb.style.display = 'none';
+  document.getElementById('lightboxVid').pause();
+  document.getElementById('lightboxBothVid').pause();
+  document.body.style.overflow = '';
+}
+
 function exportSheet() {
   const lines = segs.map((s,i) =>
     `=== SEGMENT ${i+1} [${s.timestamp}] (${(s.type||'scene').toUpperCase()}) ===\n` +
