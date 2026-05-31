@@ -660,14 +660,16 @@ function buildLLMPrompt(script, segN) {
   const orientation = aspectRatio === 'portrait' ? '9:16 vertical portrait' : '16:9 widescreen';
   return 'You are a cinematographer creating visuals for a true crime YouTube documentary.\n\n' +
     'Analyze this script and break it into exactly ' + segN + ' segments evenly distributed across the full text.\n\n' +
-    'For each segment write an image prompt that ACCURATELY depicts what the script is describing.\n' +
-    '- If the script mentions a crowd of people, show a crowd of people\n' +
-    '- If it mentions a specific location like an island, show that island\n' +
-    '- If it mentions a politician speaking, show someone speaking to a crowd\n' +
-    '- If it mentions an explosion or attack, show the aftermath\n' +
-    '- NEVER default to a generic dark street or interrogation room unless the script actually describes those\n' +
-    '- Always photorealistic, cinematic style, no text overlays, no watermarks\n' +
-    '- For real named public figures, depict "a political leader" or "a government official" without naming them\n\n' +
+    'For each segment write an image prompt that LITERALLY and ACCURATELY shows exactly what the script describes.\n' +
+    'Rules:\n' +
+    '- If the script says 560 people on an island, show exactly that — a large crowd on an island\n' +
+    '- If it mentions a politician speaking to a crowd, show a person at a podium with a crowd\n' +
+    '- If it mentions a summer camp, show a summer camp\n' +
+    '- If it mentions an explosion, show an explosion or its aftermath\n' +
+    '- Do NOT add dark noir style, dramatic lighting, or cinematic atmosphere unless the script describes that\n' +
+    '- Do NOT replace specific described scenes with generic moody landscapes\n' +
+    '- For named real people use their role only: "a prime minister", "a detective", "a judge"\n' +
+    '- Keep the prompt simple and literal — describe exactly what should be visible in the image\n\n' +
     'Return ONLY a valid JSON array, no markdown, no explanation. Each item:\n' +
     '{\n' +
     '  "timestamp": "0:00-0:30",\n' +
@@ -751,8 +753,7 @@ function buildPromptsFromText(script, segN) {
       .replace(/^create (a |an )?(photo|image|picture|video|clip) of /i, '')
       .trim();
 
-    const imagePrompt = 'Photorealistic cinematic documentary still image. ' + cleaned +
-      '. True crime documentary aesthetic, dramatic lighting, no text overlays, no watermarks, ' + orientation + '.';
+    const imagePrompt = cleaned;
 
     const videoPrompt = 'Slow cinematic camera movement. ' + cleaned.slice(0, 120) + '. Documentary film style, natural movement.';
 
@@ -861,7 +862,7 @@ async function runPipeline() {
         setProgress(`Generating image ${i+1} of ${segs.length}${outputType==='videos'?' (base for video)':''}...`, 10 + Math.round((done/total)*85));
         segs[i]._genImg = true; updateCard(i);
         try {
-          const prompt = `True crime documentary. ${segs[i].imagePrompt}. Cinematic photorealistic dark noir. No text overlays. No watermarks.`;
+          const prompt = segs[i].imagePrompt + '. Photorealistic, no text overlays, no watermarks.';
           segs[i].imgURL = await generateImage(prompt);
           segs[i]._genImg = false; segs[i]._errImg = false;
         } catch(err) {
@@ -1058,7 +1059,7 @@ async function regenSingle(i) {
   if (outputType !== 'videos') {
     segs[i]._genImg = true; updateCard(i);
     try {
-      const prompt = `True crime documentary. ${segs[i].imagePrompt}. Cinematic photorealistic dark noir. No text overlays.`;
+      const prompt = segs[i].imagePrompt + '. Photorealistic, no text overlays, no watermarks.';
       segs[i].imgURL = await generateImage(prompt);
       segs[i]._genImg = false;
     } catch(e) { segs[i]._genImg = false; segs[i]._errImg = true; showError('Regen failed: ' + e.message); }
