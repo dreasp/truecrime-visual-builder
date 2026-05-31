@@ -250,7 +250,7 @@ select{width:100%;background:var(--bg3);border:1px solid var(--border);border-ra
         <div class="divider"></div>
 
         <!-- Script -->
-        <div>
+        <div id="scriptSection">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
             <label class="fl" style="margin:0;">Script</label>
             <button class="btn btn-ghost btn-sm" onclick="loadDemo()" style="font-size:10px;padding:3px 9px;">Load demo</button>
@@ -291,6 +291,23 @@ select{width:100%;background:var(--bg3);border:1px solid var(--border);border-ra
               <option value="10" selected>10 seconds</option>
             </select>
           </div>
+        </div>
+
+        <!-- Manual prompt mode -->
+        <div>
+          <label class="fl">Prompt mode</label>
+          <div class="toggle-group">
+            <button class="toggle-opt active" id="mode-auto" onclick="setPromptMode('auto')">&#10024; Auto from script</button>
+            <button class="toggle-opt" id="mode-manual" onclick="setPromptMode('manual')">&#9999; Write my own</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted2);margin-top:6px;line-height:1.6;" id="modeHint">AI reads your script and writes prompts automatically.</div>
+        </div>
+
+        <!-- Manual prompts area - shown when manual mode selected -->
+        <div id="manualPromptsArea" style="display:none;">
+          <label class="fl">Your prompts <span style="color:var(--muted2);font-weight:400;">(one per line = one image)</span></label>
+          <textarea class="script-box" id="manualPrompts" style="min-height:140px;" placeholder="Write one prompt per line. Each line = one image.&#10;&#10;Example:&#10;Aerial view of a forested island in a Norwegian lake, summer, 500 people gathered on shore&#10;A government official in a suit speaking at a podium to a large outdoor crowd of young people&#10;Emergency rescue boats on a lake at night, searchlights, chaos"></textarea>
+          <div style="font-size:11px;color:var(--muted2);margin-top:4px;">The number of segments above will be ignored — one image per line.</div>
         </div>
 
         <!-- Cost -->
@@ -403,6 +420,7 @@ let pendingUpload = null;
 let pendingUploadName = '';
 let running = false;
 let outputType = 'photos'; // photos | videos | both
+let promptMode = 'auto'; // auto | manual
 let aspectRatio = 'landscape'; // landscape | portrait
 let selectedCards = new Set();
 
@@ -450,6 +468,18 @@ function setRatio(ratio) {
   aspectRatio = ratio;
   ['landscape','portrait'].forEach(r => document.getElementById('ratio-'+r).classList.toggle('active', r===ratio));
   updateCost();
+}
+
+function setPromptMode(mode) {
+  promptMode = mode;
+  ['auto','manual'].forEach(m => document.getElementById('mode-'+m).classList.toggle('active', m===mode));
+  const hints = {
+    auto: 'AI reads your script and writes prompts automatically.',
+    manual: 'You write exactly what each image should show — just like on fal.ai directly.'
+  };
+  document.getElementById('modeHint').textContent = hints[mode];
+  document.getElementById('manualPromptsArea').style.display = mode === 'manual' ? 'block' : 'none';
+  document.getElementById('scriptSection').style.display = mode === 'manual' ? 'none' : 'block';
 }
 
 function updateCost() {
@@ -830,7 +860,8 @@ async function runPipeline() {
 
   hideError();
   if (!key) { showError('Please enter your FAL.ai API key.'); return; }
-  if (!script) { showError('Please paste your script first.'); return; }
+  if (promptMode === 'auto' && !script) { showError('Please paste your script first.'); return; }
+  if (promptMode === 'manual' && !document.getElementById('manualPrompts').value.trim()) { showError('Please enter your prompts in the manual prompts box.'); return; }
   if (running) return;
 
   running = true;
@@ -844,9 +875,24 @@ async function runPipeline() {
   setProgress('Analyzing script...', 5);
 
   try {
-    // Step 1: Analyze script and split into segments
-    setProgress('Breaking script into segments...', 8);
-    const parsed = await analyzeScript(script, segN);
+    // Step 1: Build segments — either from script analysis or manual prompts
+    setProgress('Building segments...', 8);
+    let parsed;
+    if (promptMode === 'manual') {
+      const manualText = document.getElementById('manualPrompts').value.trim();
+      if (!manualText) { showError('Please enter at least one prompt in the manual prompts box.'); running = false; document.getElementById('runBtn').disabled = false; return; }
+      const lines = manualText.split('\n').map(l => l.trim()).filter(l => l.length > 3);
+      parsed = lines.map((line, i) => ({
+        timestamp: i + ':00-' + (i+1) + ':00',
+        type: ['scene','action','emotion','evidence'][i % 4],
+        text: line,
+        imagePrompt: line,
+        videoPrompt: 'Slow cinematic camera movement. ' + line.slice(0, 100),
+        suggestedSearch: line.split(' ').slice(0, 4).join(' ')
+      }));
+    } else {
+      parsed = await analyzeScript(script, segN);
+    }
 
     segs = parsed.map(s => ({...s, imgURL: null, vidURL: null, userMedia: null, userMediaName:'', _genImg: false, _genVid: false, _errImg: false, _errVid: false}));
     renderAllCards();
