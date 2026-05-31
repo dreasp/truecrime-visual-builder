@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>True Crime Visual Builder v4</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0c0c0e;--bg2:#131315;--bg3:#1a1a1d;--bg4:#222226;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --text:#eeebe6;--muted:#7a7875;--muted2:#5a5855;
+  --gold:#c9aa71;--gold2:#a8864d;
+  --red:#c0392b;--green:#27ae60;--blue:#3d8ef0;
+  --radius:10px;--rsm:6px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;line-height:1.6;}
+h1,h2,h3{font-family:'Playfair Display',serif;font-weight:700;}
+input,textarea,select,button{font-family:'Inter',sans-serif;}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+
+.shell{display:flex;flex-direction:column;height:100vh;}
+.topbar{height:54px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;}
+.topbar-title{font-family:'Playfair Display',serif;font-size:17px;color:var(--gold);}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--red);animation:blink 2.2s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0.2;}}
+
+.body{display:flex;flex:1;overflow:hidden;}
+.sidebar{width:370px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.sidebar-scroll{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:13px;}
+.sidebar-footer{padding:14px 18px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:9px;}
+.canvas{flex:1;overflow-y:auto;background:var(--bg);}
+.canvas-inner{padding:22px;}
+
+label.fl{display:block;font-size:11px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px;}
+textarea.script-box{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:11px 13px;color:var(--text);font-size:12.5px;line-height:1.75;resize:vertical;min-height:180px;outline:none;transition:border-color .2s;}
+textarea.script-box:focus{border-color:var(--gold2);}
+textarea.script-box::placeholder{color:var(--muted2);}
+input[type=text],input[type=password],input[type=number]{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:9px 12px;color:var(--text);font-size:13px;outline:none;transition:border-color .2s;}
+input[type=text]:focus,input[type=password]:focus,input[type=number]:focus{border-color:var(--gold2);}
+input::placeholder{color:var(--muted2);}
+select{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:9px 12px;color:var(--text);font-size:13px;outline:none;cursor:pointer;}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 16px;border-radius:var(--rsm);font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s;line-height:1;}
+.btn-gold{background:var(--gold);color:#160f02;}
+.btn-gold:hover{background:#d4b87a;}
+.btn-gold:disabled{opacity:.35;cursor:not-allowed;pointer-events:none;}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);}
+.btn-ghost:hover{color:var(--text);border-color:var(--border2);background:var(--bg3);}
+.btn-ghost:disabled{opacity:.35;cursor:not-allowed;pointer-events:none;}
+.btn-sm{padding:5px 10px;font-size:11px;}
+.btn-danger{background:transparent;color:#e05c4a;border:1px solid rgba(224,92,74,.25);}
+.btn-danger:hover{background:rgba(224,92,74,.1);border-color:rgba(224,92,74,.5);}
+.btn-full{width:100%;}
+
+/* Toggle switch for output type */
+.toggle-group{display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:3px;gap:3px;}
+.toggle-opt{flex:1;padding:7px 10px;border-radius:4px;font-size:12px;font-weight:500;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s;text-align:center;}
+.toggle-opt.active{background:var(--gold);color:#160f02;}
+.toggle-opt:not(.active):hover{color:var(--text);background:var(--bg4);}
+
+/* Ratio toggle */
+.ratio-group{display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:3px;gap:3px;}
+.ratio-opt{flex:1;padding:7px 10px;border-radius:4px;font-size:12px;font-weight:500;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px;}
+.ratio-opt.active{background:var(--bg2);color:var(--gold);border:1px solid rgba(201,170,113,.3);}
+.ratio-opt:not(.active):hover{color:var(--text);}
+.ratio-icon{font-size:16px;line-height:1;}
+
+.drop-zone{border:1px dashed var(--border2);border-radius:var(--radius);padding:18px 16px;text-align:center;cursor:pointer;transition:all .2s;}
+.drop-zone:hover{border-color:var(--gold2);background:rgba(201,170,113,.03);}
+.drop-zone p{font-size:12px;color:var(--muted);}
+.drop-zone strong{color:var(--text);font-weight:500;}
+
+.settings-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.cost-box{background:var(--bg3);border:1px solid rgba(201,170,113,.2);border-radius:var(--rsm);padding:10px 13px;display:flex;align-items:center;justify-content:space-between;}
+.cost-box .lbl{font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+.cost-box .amt{font-size:16px;font-weight:500;color:var(--gold);font-family:'IBM Plex Mono',monospace;}
+
+.progress-area{background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:12px 14px;display:flex;flex-direction:column;gap:8px;}
+.progress-row{display:flex;align-items:center;gap:8px;}
+.spinner{width:13px;height:13px;border:1.5px solid var(--border2);border-top-color:var(--gold);border-radius:50%;animation:spin .85s linear infinite;flex-shrink:0;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.prog-label{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace;flex:1;}
+.prog-pct{font-size:12px;color:var(--gold);font-family:'IBM Plex Mono',monospace;}
+.prog-track{height:2px;background:var(--border);border-radius:1px;overflow:hidden;}
+.prog-fill{height:100%;background:var(--gold);border-radius:1px;transition:width .35s ease;}
+
+/* Canvas */
+.seg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
+.seg-grid.portrait{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));}
+
+/* Segment card */
+.seg-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:border-color .2s;display:flex;flex-direction:column;position:relative;}
+.seg-card:hover{border-color:var(--border2);}
+.seg-card.selected{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold);}
+.seg-card.generating{border-color:rgba(201,170,113,.4);}
+
+/* Checkbox overlay */
+.card-checkbox{position:absolute;top:8px;right:8px;z-index:10;width:20px;height:20px;border-radius:4px;border:1.5px solid rgba(255,255,255,.5);background:rgba(0,0,0,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;backdrop-filter:blur(4px);}
+.card-checkbox.checked{background:var(--gold);border-color:var(--gold);}
+.card-checkbox.checked::after{content:'✓';font-size:12px;color:#160f02;font-weight:700;}
+
+.seg-img-wrap{position:relative;background:var(--bg3);overflow:hidden;}
+.seg-img-wrap.landscape{aspect-ratio:16/9;}
+.seg-img-wrap.portrait{aspect-ratio:9/16;}
+.seg-img-wrap img{width:100%;height:100%;object-fit:cover;display:block;}
+.seg-img-placeholder{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:var(--muted);font-size:11px;}
+.seg-img-overlay{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.7) 0%,transparent 50%);pointer-events:none;}
+.seg-num-badge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);color:var(--gold);font-size:10px;font-family:'IBM Plex Mono',monospace;padding:3px 8px;border-radius:99px;border:1px solid rgba(201,170,113,.3);backdrop-filter:blur(4px);}
+.seg-video-badge{position:absolute;bottom:8px;left:8px;background:rgba(61,142,240,.25);color:#5b9ef5;font-size:10px;font-family:'IBM Plex Mono',monospace;padding:3px 8px;border-radius:99px;border:1px solid rgba(61,142,240,.4);}
+
+.seg-body{padding:11px 13px;flex:1;display:flex;flex-direction:column;gap:6px;}
+.seg-type-row{display:flex;align-items:center;gap:7px;}
+.seg-type-pill{font-size:10px;padding:2px 8px;border-radius:99px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.04em;}
+.pill-scene{background:rgba(61,142,240,.12);color:#5b9ef5;border:1px solid rgba(61,142,240,.2);}
+.pill-action{background:rgba(224,92,74,.12);color:#e87060;border:1px solid rgba(224,92,74,.2);}
+.pill-emotion{background:rgba(39,174,96,.12);color:#4cd97b;border:1px solid rgba(39,174,96,.2);}
+.pill-evidence{background:rgba(201,170,113,.12);color:var(--gold);border:1px solid rgba(201,170,113,.2);}
+.seg-ts{font-size:10px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;margin-left:auto;}
+.seg-excerpt{font-size:12px;color:var(--muted);line-height:1.65;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.seg-prompt-lbl{font-size:10px;color:var(--gold);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.06em;}
+.seg-prompt-txt{font-size:11px;color:var(--muted);line-height:1.65;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-style:italic;}
+
+.seg-actions{display:flex;border-top:1px solid var(--border);}
+.seg-act-btn{flex:1;padding:8px 4px;font-size:11px;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s;display:flex;align-items:center;justify-content:center;gap:3px;border-right:1px solid var(--border);}
+.seg-act-btn:last-child{border-right:none;}
+.seg-act-btn:hover{background:var(--bg3);color:var(--text);}
+.seg-act-btn.regen:hover{color:var(--gold);}
+.seg-act-btn.dl:hover{color:var(--green);}
+.seg-act-btn.del:hover{color:#e87060;background:rgba(224,92,74,.07);}
+
+.add-card{background:transparent;border:1px dashed var(--border);border-radius:var(--radius);min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;color:var(--muted);font-size:13px;transition:all .2s;width:100%;}
+.add-card:hover{border-color:var(--gold2);color:var(--gold);background:rgba(201,170,113,.03);}
+
+/* Bulk actions bar */
+.bulk-bar{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 22px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.bulk-bar.hidden{display:none;}
+.sel-count{font-size:12px;color:var(--gold);font-family:'IBM Plex Mono',monospace;}
+
+/* Stats */
+.stats-bar{display:flex;gap:10px;flex-wrap:wrap;padding:0 0 16px;}
+.stat-chip{background:var(--bg3);border:1px solid var(--border);border-radius:99px;padding:4px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted);}
+.stat-chip span{color:var(--text);}
+
+/* Empty state */
+.empty-canvas{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:calc(100vh - 54px);gap:14px;color:var(--muted);text-align:center;padding:40px;}
+.empty-canvas h2{font-size:26px;color:rgba(238,235,230,.3);}
+.empty-canvas p{font-size:13px;max-width:380px;line-height:1.75;color:var(--muted2);}
+
+/* Modal */
+.modal-veil{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;padding:20px;}
+.modal-veil.open{display:flex;}
+.modal-box{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius);width:560px;max-width:100%;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;}
+.modal-head{padding:18px 22px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
+.modal-head h3{font-size:17px;flex:1;}
+.modal-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px;line-height:1;}
+.modal-close:hover{color:var(--text);}
+.modal-content{padding:18px 22px;display:flex;flex-direction:column;gap:14px;flex:1;}
+.modal-img-wrap{background:var(--bg3);border-radius:var(--rsm);overflow:hidden;}
+.modal-img-wrap.landscape{aspect-ratio:16/9;}
+.modal-img-wrap.portrait{aspect-ratio:9/16;max-height:400px;}
+.modal-img-wrap img{width:100%;height:100%;object-fit:cover;display:block;}
+.modal-img-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted2);font-size:13px;min-height:160px;}
+.modal-foot{padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.modal-foot-right{margin-left:auto;display:flex;gap:8px;}
+
+.vid-prompt-box{background:var(--bg3);border:1px solid rgba(201,170,113,.2);border-radius:var(--rsm);padding:12px 14px;}
+.vid-prompt-box .vp-label{font-size:10px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.07em;color:var(--gold);margin-bottom:6px;}
+.vid-prompt-box p{font-size:12px;color:var(--muted);line-height:1.7;}
+.copy-chip{display:inline-flex;align-items:center;gap:5px;margin-top:8px;padding:4px 11px;background:rgba(201,170,113,.1);border:1px solid rgba(201,170,113,.25);border-radius:99px;font-size:11px;color:var(--gold);cursor:pointer;font-family:'IBM Plex Mono',monospace;transition:background .15s;}
+.copy-chip:hover{background:rgba(201,170,113,.2);}
+
+.key-section{background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:12px 14px;display:flex;flex-direction:column;gap:8px;}
+.key-row{display:flex;gap:8px;align-items:center;}
+.key-row input{flex:1;}
+.key-status{font-size:11px;font-family:'IBM Plex Mono',monospace;}
+.key-status.ok{color:var(--green);}
+.key-status.bad{color:#e87060;}
+
+.divider{height:1px;background:var(--border);margin:2px 0;}
+.error-box{background:rgba(224,92,74,.08);border:1px solid rgba(224,92,74,.25);border-radius:var(--rsm);padding:10px 13px;font-size:12px;color:#e87060;line-height:1.6;}
+
+/* Custom segment input */
+.seg-input-row{display:flex;gap:8px;align-items:center;}
+.seg-input-row input[type=number]{width:80px;text-align:center;}
+.seg-hint{font-size:11px;color:var(--muted2);margin-top:4px;}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <span style="font-size:16px;">&#9664;</span>
+    <span class="topbar-title">True Crime Visual Builder</span>
+    <div class="topbar-right">
+      <div id="headerStats" style="display:flex;gap:8px;"></div>
+      <button class="btn btn-ghost btn-sm" id="exportBtn" onclick="exportSheet()" disabled>&#8595; Export sheet</button>
+      <div class="live-dot"></div>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="sidebar-scroll">
+
+        <!-- API Key -->
+        <div>
+          <label class="fl">FAL.ai API key</label>
+          <div class="key-section">
+            <div class="key-row">
+              <input type="password" id="apiKey" placeholder="fal_..." oninput="onKeyInput()">
+              <button class="btn btn-ghost btn-sm" onclick="toggleKey()">&#128065;</button>
+            </div>
+            <div class="key-status" id="keyStatus"></div>
+            <div style="font-size:11px;color:var(--muted2);line-height:1.6;">Get your key at <a href="https://fal.ai/dashboard/keys" style="color:var(--gold);text-decoration:none;" target="_blank">fal.ai/dashboard/keys</a></div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Output type -->
+        <div>
+          <label class="fl">Generate</label>
+          <div class="toggle-group">
+            <button class="toggle-opt active" id="opt-photos" onclick="setOutputType('photos')">&#128247; Photos only</button>
+            <button class="toggle-opt" id="opt-videos" onclick="setOutputType('videos')">&#127916; Videos only</button>
+            <button class="toggle-opt" id="opt-both" onclick="setOutputType('both')">&#10024; Both</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted2);margin-top:6px;line-height:1.6;" id="outputHint">Generates images only. Video prompts included for optional manual use.</div>
+        </div>
+
+        <!-- Aspect ratio -->
+        <div>
+          <label class="fl">Aspect ratio</label>
+          <div class="ratio-group">
+            <button class="ratio-opt active" id="ratio-landscape" onclick="setRatio('landscape')">
+              <span class="ratio-icon">&#9646;&#9646;</span> 16:9 Long form
+            </button>
+            <button class="ratio-opt" id="ratio-portrait" onclick="setRatio('portrait')">
+              <span class="ratio-icon">&#9646;</span> 9:16 Shorts
+            </button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Script -->
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <label class="fl" style="margin:0;">Script</label>
+            <button class="btn btn-ghost btn-sm" onclick="loadDemo()" style="font-size:10px;padding:3px 9px;">Load demo</button>
+          </div>
+          <div class="drop-zone" onclick="document.getElementById('fileIn').click()" style="margin-bottom:10px;padding:12px;">
+            <p><strong>Drop .txt file</strong> or click to browse</p>
+          </div>
+          <input type="file" id="fileIn" style="display:none" accept=".txt" onchange="loadFile(event)">
+          <textarea class="script-box" id="scriptIn" placeholder="Paste your true crime script here..."></textarea>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Settings -->
+        <div>
+          <label class="fl">Settings</label>
+          <div class="settings-row" style="margin-bottom:10px;">
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Number of segments</div>
+              <div class="seg-input-row">
+                <input type="number" id="segCount" value="10" min="1" max="100" oninput="updateCost()" style="width:100%;">
+              </div>
+              <div class="seg-hint">Enter any number (1–100)</div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Quality</div>
+              <select id="imgQuality" onchange="updateCost()">
+                <option value="low">Low — fastest</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High — best</option>
+              </select>
+            </div>
+          </div>
+          <div id="videoDuration" style="display:none;margin-bottom:10px;">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Video duration</div>
+            <select id="vidDuration" onchange="updateCost()">
+              <option value="5">5 seconds</option>
+              <option value="10" selected>10 seconds</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Cost -->
+        <div class="cost-box">
+          <div>
+            <div class="lbl">Estimated cost</div>
+            <div style="font-size:11px;color:var(--muted2);margin-top:2px;" id="costDetail">10 images</div>
+          </div>
+          <div class="amt" id="costAmt">$0.50</div>
+        </div>
+
+        <div class="error-box" id="errorBox" style="display:none;"></div>
+      </div>
+
+      <!-- Footer -->
+      <div class="sidebar-footer">
+        <div id="progressArea" style="display:none;">
+          <div class="progress-area">
+            <div class="progress-row">
+              <div class="spinner"></div>
+              <span class="prog-label" id="progLabel">Analyzing...</span>
+              <span class="prog-pct" id="progPct">0%</span>
+            </div>
+            <div class="prog-track"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
+          </div>
+        </div>
+        <button class="btn btn-gold btn-full" id="runBtn" onclick="runPipeline()">&#10024;&nbsp; Analyze &amp; Generate</button>
+        <div style="font-size:11px;color:var(--muted2);text-align:center;line-height:1.6;">Media generates one by one. Edit or delete any card while others process.</div>
+      </div>
+    </div>
+
+    <!-- CANVAS -->
+    <div class="canvas" id="canvas">
+      <div class="empty-canvas" id="emptyState">
+        <h2>Your visuals appear here</h2>
+        <p>Enter your FAL.ai API key, paste your script, choose photos, videos, or both, pick your aspect ratio, set how many segments you need, and hit Generate.</p>
+      </div>
+      <div id="canvasWrap" style="display:none;">
+        <!-- Bulk actions bar -->
+        <div class="bulk-bar hidden" id="bulkBar">
+          <span class="sel-count" id="selCount">0 selected</span>
+          <button class="btn btn-ghost btn-sm" onclick="selectAll()">&#9745; Select all</button>
+          <button class="btn btn-ghost btn-sm" onclick="deselectAll()">&#9744; Deselect all</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--green);border-color:rgba(39,174,96,.3);" onclick="downloadSelected()">&#8595; Download selected</button>
+          <button class="btn btn-ghost btn-sm" onclick="hideBulkBar()">&#10005;</button>
+        </div>
+        <div class="canvas-inner">
+          <div class="stats-bar" id="statsBar"></div>
+          <div class="seg-grid" id="segGrid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-veil" id="editModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="modalTitle">Edit segment</h3>
+      <button class="modal-close" onclick="closeModal()">&#10005;</button>
+    </div>
+    <div class="modal-content">
+      <div class="modal-img-wrap landscape" id="modalImgWrap">
+        <div class="modal-img-placeholder">No image yet</div>
+      </div>
+      <div>
+        <label class="fl">Script excerpt</label>
+        <textarea id="modalText" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:10px 12px;color:var(--text);font-size:12.5px;line-height:1.7;resize:vertical;min-height:70px;outline:none;font-family:'Inter',sans-serif;"></textarea>
+      </div>
+      <div>
+        <label class="fl">Image / video prompt (edit to change generation)</label>
+        <textarea id="modalPrompt" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:10px 12px;color:var(--text);font-size:12.5px;line-height:1.7;resize:vertical;min-height:90px;outline:none;font-family:'Inter',sans-serif;"></textarea>
+      </div>
+      <div class="vid-prompt-box">
+        <div class="vp-label">&#9654; Video prompt — animate this image</div>
+        <p id="modalVidPrompt"></p>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+          <button class="copy-chip" onclick="copyVidPrompt()">&#10064; Copy prompt</button>
+          <button id="modalGenVidBtn" class="btn btn-ghost btn-sm" style="color:var(--blue);border-color:rgba(61,142,240,0.3);font-size:11px;" onclick="generateVideoForSegment(editIdx)">&#9654; Generate video</button>
+          <span style="font-size:10px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">animates your image above</span>
+        </div>
+      </div>
+      <div>
+        <label class="fl">Replace with your own image or video</label>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+          &#128247; Upload media
+          <input type="file" style="display:none" accept="image/*,video/*" onchange="handleUpload(event)">
+        </label>
+        <span id="uploadName" style="font-size:11px;color:var(--muted);margin-left:10px;"></span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger btn-sm" onclick="deleteFromModal()">&#128465; Delete</button>
+      <button class="btn btn-ghost btn-sm" onclick="addAfterModal()">+ Add after</button>
+      <div class="modal-foot-right">
+        <button class="btn btn-ghost btn-sm" onclick="dlSingle(editIdx)" style="color:var(--green);">&#8595; Download</button>
+        <button class="btn btn-ghost btn-sm" onclick="regenFromModal()">&#8635; Regen</button>
+        <button class="btn btn-gold btn-sm" onclick="saveModal()">&#10003; Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── STATE ── */
+let segs = [];
+let editIdx = -1;
+let pendingUpload = null;
+let pendingUploadName = '';
+let running = false;
+let outputType = 'photos'; // photos | videos | both
+let aspectRatio = 'landscape'; // landscape | portrait
+let selectedCards = new Set();
+
+/* ── FAL.AI CONFIG ── */
+// Image model: fal-ai/flux-pro  Video model: fal-ai/kling-video/v1.6/standard/image-to-video
+const IMG_MODEL = 'fal-ai/flux/dev';
+const VID_MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
+const IMG_PRICES = { low: 0.025, medium: 0.05, high: 0.08 };
+const VID_PRICES = { 5: 0.14, 10: 0.28 };
+
+/* ── DEMO SCRIPT ── */
+const DEMO = `CRIME & PSYCHE WITH DREA
+Episode: The Disappearance of Rachel Dwyer
+
+SECTION 1 — COLD OPEN
+It was an ordinary Tuesday morning in March 2019 when Rachel Dwyer kissed her two daughters goodbye and drove to work. She never arrived. Her car was found abandoned on a rural highway outside Columbus, Ohio — engine still running, door open, coffee still warm in the cupholder.
+
+SECTION 2 — BACKGROUND
+Rachel was 38 years old, a pediatric nurse with no enemies anyone could name. Colleagues described her as warm, dependable, someone who stayed late to comfort frightened children. Her husband of twelve years, Daniel Dwyer, reported her missing at 9am when she failed to call in for her morning shift.
+
+SECTION 3 — THE INVESTIGATION
+Detective Monica Reyes arrived at the scene to find the highway eerily quiet. The car had veered partially onto the gravel shoulder. There were no signs of a struggle, no skid marks, no broken glass. Just silence and an open door.
+
+SECTION 4 — THE SUSPECT
+Footage from a gas station showed Rachel's silver Honda passing at 7:42am. A dark SUV had been following her since the interstate. The plates came back to a rental company in Cincinnati, traced to a man named Marcus Webb — a former colleague Rachel had filed a harassment complaint against eight months earlier.
+
+SECTION 5 — THE DISCOVERY
+On the tenth day, a volunteer group found Rachel's phone buried beneath a fallen tree three miles from her car. The last text she had sent was to her sister: just two words — he's following.`;
+
+/* ── UI SETUP ── */
+function setOutputType(type) {
+  outputType = type;
+  ['photos','videos','both'].forEach(t => document.getElementById('opt-'+t).classList.toggle('active', t===type));
+  const hints = {
+    photos: 'Generates images only. Video prompts included for optional manual use.',
+    videos: 'Generates video clips only using AI. No still images.',
+    both: 'Generates both a still image and a video clip for every segment.'
+  };
+  document.getElementById('outputHint').textContent = hints[type];
+  document.getElementById('videoDuration').style.display = (type==='videos'||type==='both') ? 'block' : 'none';
+  updateCost();
+}
+
+function setRatio(ratio) {
+  aspectRatio = ratio;
+  ['landscape','portrait'].forEach(r => document.getElementById('ratio-'+r).classList.toggle('active', r===ratio));
+  updateCost();
+}
+
+function updateCost() {
+  const n = Math.max(1, parseInt(document.getElementById('segCount').value) || 1);
+  const q = document.getElementById('imgQuality').value;
+  const dur = parseInt(document.getElementById('vidDuration').value || 10);
+  let cost = 0, detail = '';
+  if (outputType === 'photos') {
+    cost = n * IMG_PRICES[q];
+    detail = `${n} images × $${IMG_PRICES[q].toFixed(3)}`;
+  } else if (outputType === 'videos') {
+    cost = n * VID_PRICES[dur];
+    detail = `${n} videos × $${VID_PRICES[dur].toFixed(2)} (${dur}s)`;
+  } else {
+    const imgCost = n * IMG_PRICES[q];
+    const vidCost = n * VID_PRICES[dur];
+    cost = imgCost + vidCost;
+    detail = `${n} images + ${n} videos`;
+  }
+  document.getElementById('costAmt').textContent = '$' + cost.toFixed(2);
+  document.getElementById('costDetail').textContent = detail;
+}
+document.getElementById('segCount').addEventListener('input', updateCost);
+updateCost();
+
+function onKeyInput() {
+  const k = document.getElementById('apiKey').value.trim();
+  const el = document.getElementById('keyStatus');
+  if (!k) { el.textContent = ''; return; }
+  if (k.length > 10) { el.className = 'key-status ok'; el.textContent = '✓ Key entered'; }
+  else { el.className = 'key-status bad'; el.textContent = '✗ Key looks too short'; }
+}
+function toggleKey() {
+  const i = document.getElementById('apiKey');
+  i.type = i.type === 'password' ? 'text' : 'password';
+}
+function getKey() { return document.getElementById('apiKey').value.trim(); }
+function loadFile(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader(); r.onload = ev => { document.getElementById('scriptIn').value = ev.target.result; }; r.readAsText(f);
+}
+function loadDemo() { document.getElementById('scriptIn').value = DEMO; }
+
+/* ── FAL.AI API CALLS ── */
+async function falRequest(modelId, input) {
+  // Try direct synchronous call first (fastest, ~3-8 seconds)
+  try {
+    const directRes = await fetch(`https://fal.run/${modelId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
+      body: JSON.stringify(input)
+    });
+    if (directRes.ok) {
+      const data = await directRes.json();
+      if (data.images || data.video || data.output) return data;
+    }
+    // If direct call returns non-ok, fall through to queue
+    if (directRes.status === 401 || directRes.status === 403) {
+      const err = await directRes.text();
+      throw new Error(`Auth error ${directRes.status}: ${err}`);
+    }
+  } catch(e) {
+    if (e.message.includes('Auth error')) throw e;
+    // Network or other error, try queue
+  }
+
+  // Fall back to queue-based approach
+  const submitRes = await fetch(`https://queue.fal.run/${modelId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
+    body: JSON.stringify({ input })
+  });
+  if (!submitRes.ok) {
+    const err = await submitRes.text();
+    throw new Error(`FAL error ${submitRes.status}: ${err}`);
+  }
+  const submitData = await submitRes.json();
+  const request_id = submitData.request_id;
+  if (!request_id) throw new Error('No request_id returned from FAL queue');
+
+  // Poll with shorter intervals and better timeout
+  const statusBase = `https://queue.fal.run/${modelId}/requests/${request_id}`;
+  const maxWait = 120000; // 2 minutes max
+  const start = Date.now();
+  while (Date.now() - start < maxWait) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const statusRes = await fetch(statusBase + '/status', {
+        headers: { 'Authorization': 'Key ' + getKey() }
+      });
+      if (!statusRes.ok) continue;
+      const status = await statusRes.json();
+      if (status.status === 'COMPLETED' || status.status === 'OK') {
+        const resultRes = await fetch(statusBase, { headers: { 'Authorization': 'Key ' + getKey() } });
+        const result = await resultRes.json();
+        // Unwrap nested response if needed
+        return result.output || result;
+      }
+      if (status.status === 'FAILED' || status.status === 'ERROR') {
+        throw new Error('FAL generation failed: ' + (status.error || status.detail || 'unknown'));
+      }
+    } catch(pollErr) {
+      if (pollErr.message.includes('FAL generation failed')) throw pollErr;
+    }
+  }
+  throw new Error('FAL timed out after 2 minutes. Try fewer segments or check your FAL.ai dashboard.');
+}
+
+async function generateImage(prompt) {
+  const sizeMap = { landscape: 'landscape_16_9', portrait: 'portrait_9_16' };
+  const stepsMap = { low: 20, medium: 28, high: 40 };
+  const quality = document.getElementById('imgQuality').value;
+  const result = await falRequest(IMG_MODEL, {
+    prompt: prompt,
+    image_size: sizeMap[aspectRatio],
+    num_inference_steps: stepsMap[quality],
+    guidance_scale: 3.5,
+    num_images: 1,
+    safety_tolerance: '5'
+  });
+  if (result.images && result.images[0]) return result.images[0].url;
+  if (result.image && result.image.url) return result.image.url;
+  throw new Error('No image in FAL response: ' + JSON.stringify(Object.keys(result)));
+}
+
+async function generateVideo(imageUrl, prompt) {
+  const dur = parseInt(document.getElementById('vidDuration').value || 10);
+  // Always require an image reference - Kling image-to-video is far more accurate than text-to-video
+  if (!imageUrl || imageUrl.includes('picsum')) {
+    throw new Error('Please generate an image first before creating a video. The video animates your image.');
+  }
+  const result = await falRequest(VID_MODEL, {
+    prompt: prompt,
+    image_url: imageUrl,
+    duration: String(dur),
+    aspect_ratio: aspectRatio === 'landscape' ? '16:9' : '9:16'
+  });
+  if (result.video && result.video.url) return result.video.url;
+  if (result.url) return result.url;
+  throw new Error('No video returned from FAL. Check your FAL.ai credits at fal.ai/dashboard');
+}
+
+// Generate video for a single segment from the Edit modal
+async function generateVideoForSegment(i) {
+  if (!getKey()) { showError('API key required.'); return; }
+  const seg = segs[i];
+  if (!seg.imgURL && !seg.userMedia) {
+    showError('Generate or upload an image for this segment first — the video animates your image.');
+    return;
+  }
+  const btn = document.getElementById('modalGenVidBtn');
+  if (btn) { btn.innerHTML = '<span class="spinner" style="width:11px;height:11px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Generating...'; btn.disabled = true; }
+
+  segs[i]._genVid = true;
+  updateCard(i);
+  try {
+    const imgSrc = seg.userMedia || seg.imgURL;
+    const prompt = document.getElementById('modalVidPrompt').textContent;
+    segs[i].vidURL = await generateVideo(imgSrc, prompt);
+    segs[i]._genVid = false;
+    // Update modal image area to show video
+    const wrap = document.getElementById('modalImgWrap');
+    wrap.innerHTML = `<video src="${segs[i].vidURL}" style="width:100%;height:100%;object-fit:cover;" controls autoplay muted loop></video>`;
+  } catch(e) {
+    segs[i]._genVid = false;
+    segs[i]._errVid = true;
+    showError('Video generation failed: ' + e.message);
+  }
+  if (btn) { btn.innerHTML = '&#9654; Generate video'; btn.disabled = false; }
+  updateCard(i);
+  updateStats();
+}
+
+/* ── SCRIPT ANALYSIS — splits script into segments client-side ── */
+function analyzeScript(script, segN) {
+  // Split script into paragraphs/sections, then distribute into segN segments
+  const paragraphs = script.split(/\n{2,}|(?=SECTION|PART |CHAPTER )/).map(p => p.trim()).filter(p => p.length > 30);
+  const types = ['scene', 'action', 'emotion', 'evidence'];
+  const moodPrompts = [
+    'Cinematic dark noir establishing shot, rain-soaked empty street at night, single amber streetlight casting long shadows, dense fog, no people visible, photorealistic, widescreen',
+    'Dark dramatic overhead shot of a crime scene, yellow police tape fluttering in wind, scattered evidence markers, forensic lighting, gritty photorealistic style',
+    'Atmospheric wide shot of an isolated rural road at dawn, mist rising from fields, ominous overcast sky, single car in distance, tension and dread, photorealistic',
+    'Close cinematic shot of a detective case board with pinned photographs and red string connections, moody desk lamp, shadows, investigation atmosphere',
+    'Dark courthouse exterior at dusk, stone columns, harsh fluorescent light spilling from windows, empty steps, dramatic sky, noir photorealistic',
+    'Abandoned building interior, shafts of dusty light through broken windows, peeling walls, eerie silence, cinematic horror atmosphere, photorealistic',
+    'Suburban house at night, single lit window, shadows moving inside, damp grass, streetlight reflection in puddle, unsettling quiet, photorealistic',
+    'Empty interrogation room, single overhead light, metal table, two chairs, harsh shadows, cold institutional atmosphere, photorealistic',
+    'Dense forest at night, moonlight filtering through trees, wet leaves, isolation, menacing silence, dark atmospheric, photorealistic',
+    'City skyline at 3am, empty highway below, neon reflections in wet asphalt, few lights in skyscrapers, lonely and ominous, photorealistic'
+  ];
+  const videoPrompts = [
+    'Slow dolly push down an empty rain-soaked street at night, fog drifting through amber light',
+    'Aerial drone shot slowly descending over a crime scene, police tape visible below, dusk lighting',
+    'Slow push toward an isolated house at night, single light in window, trees swaying in wind',
+    'Close push into a case board, photographs and evidence coming into focus dramatically',
+    'Wide establishing shot of courthouse steps, clouds moving overhead in time lapse, dramatic',
+    'Slow pan through an abandoned building interior, dust particles floating in light shafts',
+    'Slow zoom into a lit suburban window at night from the street, unsettling and voyeuristic',
+    'Slow revolve around an empty interrogation room chair, harsh overhead light, dramatic shadows',
+    'Slow tracking shot through a dark forest, moonlight breaking through trees, tension building',
+    'Time lapse of empty city street at 3am, lights flickering, occasional passing car'
+  ];
+
+  const totalDuration = segN * 60; // assume 60s per segment as baseline
+  const chunkSize = Math.max(1, Math.ceil(paragraphs.length / segN));
+  const result = [];
+
+  for (let i = 0; i < segN; i++) {
+    const chunk = paragraphs.slice(i * chunkSize, (i + 1) * chunkSize);
+    const text = chunk.join(' ').slice(0, 250) || `Segment ${i + 1}`;
+    const startMin = Math.floor((i * totalDuration / segN) / 60);
+    const endMin = Math.floor(((i + 1) * totalDuration / segN) / 60);
+    const startSec = Math.floor((i * totalDuration / segN) % 60);
+    const endSec = Math.floor(((i + 1) * totalDuration / segN) % 60);
+    const ts = `${startMin}:${String(startSec).padStart(2,'0')}-${endMin}:${String(endSec).padStart(2,'0')}`;
+
+    // Build a context-aware image prompt from the script text
+    const hasBody = /body|victim|found|discovered/i.test(text);
+    const hasCourt = /court|trial|verdict|jury|judge/i.test(text);
+    const hasSuspect = /suspect|arrested|police|detective|investigat/i.test(text);
+    const hasEmotion = /family|grief|tears|devastat|mourn/i.test(text);
+    let promptIdx = i % moodPrompts.length;
+    if (hasBody) promptIdx = 2;
+    else if (hasCourt) promptIdx = 4;
+    else if (hasSuspect) promptIdx = 7;
+    else if (hasEmotion) promptIdx = 5;
+
+    const orientation = aspectRatio === 'portrait' ? 'vertical 9:16 portrait composition' : 'widescreen 16:9 horizontal composition';
+    result.push({
+      timestamp: ts,
+      type: types[i % types.length],
+      text: text,
+      imagePrompt: moodPrompts[promptIdx] + ', ' + orientation,
+      videoPrompt: videoPrompts[i % videoPrompts.length],
+      suggestedSearch: ['dark crime scene night', 'police investigation', 'courtroom dramatic', 'abandoned building interior', 'empty road night fog'][i % 5]
+    });
+  }
+  return result;
+}
+
+/* ── MAIN PIPELINE ── */
+async function runPipeline() {
+  const key = getKey();
+  const script = document.getElementById('scriptIn').value.trim();
+  const segN = Math.max(1, Math.min(100, parseInt(document.getElementById('segCount').value) || 10));
+
+  hideError();
+  if (!key) { showError('Please enter your FAL.ai API key.'); return; }
+  if (!script) { showError('Please paste your script first.'); return; }
+  if (running) return;
+
+  running = true;
+  segs = [];
+  selectedCards.clear();
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('canvasWrap').style.display = 'block';
+  document.getElementById('segGrid').innerHTML = '';
+  document.getElementById('progressArea').style.display = 'block';
+  setProgress('Analyzing script...', 5);
+
+  try {
+    // Step 1: Analyze script and split into segments
+    setProgress('Breaking script into segments...', 8);
+    const parsed = analyzeScript(script, segN);
+
+    segs = parsed.map(s => ({...s, imgURL: null, vidURL: null, userMedia: null, userMediaName:'', _genImg: false, _genVid: false, _errImg: false, _errVid: false}));
+    renderAllCards();
+    updateStats();
+
+    // Step 2: Generate media
+    const total = outputType === 'both' ? segN * 2 : segN;
+    let done = 0;
+
+    for (let i = 0; i < segs.length; i++) {
+      // Generate image (always needed — even video-only mode generates image first to animate)
+      if (outputType === 'photos' || outputType === 'both' || outputType === 'videos') {
+        setProgress(`Generating image ${i+1} of ${segs.length}${outputType==='videos'?' (base for video)':''}...`, 10 + Math.round((done/total)*85));
+        segs[i]._genImg = true; updateCard(i);
+        try {
+          const prompt = `True crime documentary. ${segs[i].imagePrompt}. Cinematic photorealistic dark noir. No text overlays. No watermarks.`;
+          segs[i].imgURL = await generateImage(prompt);
+          segs[i]._genImg = false; segs[i]._errImg = false;
+        } catch(err) {
+          segs[i]._genImg = false; segs[i]._errImg = true;
+          console.warn('Image failed seg', i, err.message);
+          if (err.message.includes('401') || err.message.includes('403')) {
+            showError('API key rejected. Check your FAL.ai key at fal.ai/dashboard/keys');
+            break;
+          }
+        }
+        if (outputType !== 'videos') done++;
+        updateCard(i); updateStats();
+      }
+
+      // Generate video
+      if (outputType === 'videos' || outputType === 'both') {
+        setProgress(`Generating video ${i+1} of ${segs.length}...`, 10 + Math.round((done/total)*85));
+        segs[i]._genVid = true; updateCard(i);
+        try {
+          const imgSrc = segs[i].imgURL || 'https://picsum.photos/1280/720'; // fallback for video-only mode
+          segs[i].vidURL = await generateVideo(imgSrc, segs[i].videoPrompt);
+          segs[i]._genVid = false; segs[i]._errVid = false;
+        } catch(err) {
+          segs[i]._genVid = false; segs[i]._errVid = true;
+          console.warn('Video failed seg', i, err.message);
+        }
+        done++; updateCard(i); updateStats();
+      }
+    }
+
+    setProgress('All done!', 100);
+    document.getElementById('exportBtn').disabled = false;
+    showBulkBar();
+    setTimeout(() => { document.getElementById('progressArea').style.display = 'none'; }, 2500);
+
+  } catch(err) {
+    showError('Pipeline error: ' + err.message);
+    document.getElementById('progressArea').style.display = 'none';
+  }
+
+  running = false;
+  document.getElementById('runBtn').disabled = false;
+}
+
+/* ── RENDER ── */
+function renderAllCards() {
+  const grid = document.getElementById('segGrid');
+  grid.className = 'seg-grid' + (aspectRatio === 'portrait' ? ' portrait' : '');
+  grid.innerHTML = segs.map((s,i) => cardHTML(s,i)).join('') +
+    `<button class="add-card" onclick="addSegAtEnd()"><span style="font-size:22px;opacity:.4;">+</span><span>Add segment</span></button>`;
+}
+
+function cardHTML(seg, i) {
+  const media = seg.userMedia || seg.vidURL || seg.imgURL;
+  const isVideo = (seg.vidURL && !seg.userMedia) || (seg.userMedia && seg.userMediaName && seg.userMediaName.match(/\.(mp4|webm|mov)$/i));
+  const ratioClass = aspectRatio === 'portrait' ? 'portrait' : 'landscape';
+  const isSelected = selectedCards.has(i);
+
+  let imgInner;
+  if (seg.userMedia) {
+    if (seg.userMediaName && seg.userMediaName.match(/\.(mp4|webm|mov)$/i)) {
+      imgInner = `<video src="${seg.userMedia}" style="width:100%;height:100%;object-fit:cover;" muted loop autoplay playsinline></video>`;
+    } else {
+      imgInner = `<img src="${seg.userMedia}" alt="Seg ${i+1}"><div class="seg-img-overlay"></div>`;
+    }
+  } else if (seg.vidURL) {
+    imgInner = `<video src="${seg.vidURL}" style="width:100%;height:100%;object-fit:cover;" muted loop autoplay playsinline></video><div class="seg-img-overlay"></div>`;
+  } else if (seg.imgURL) {
+    imgInner = `<img src="${seg.imgURL}" alt="Seg ${i+1}"><div class="seg-img-overlay"></div>`;
+  } else if (seg._genImg || seg._genVid) {
+    imgInner = `<div class="seg-img-placeholder"><div class="spinner"></div><span>${seg._genVid ? 'Generating video...' : 'Generating image...'}</span></div>`;
+  } else if (seg._errImg || seg._errVid) {
+    imgInner = `<div class="seg-img-placeholder" style="color:var(--red);"><span style="font-size:20px;">&#9888;</span><span>Failed</span><button class="btn btn-ghost btn-sm" style="margin-top:4px;" onclick="event.stopPropagation();regenSingle(${i})">Retry</button></div>`;
+  } else {
+    imgInner = `<div class="seg-img-placeholder"><span style="font-size:28px;opacity:.2;">&#127916;</span></div>`;
+  }
+
+  const typeClass = {scene:'pill-scene',action:'pill-action',emotion:'pill-emotion',evidence:'pill-evidence'}[seg.type]||'pill-scene';
+
+  return `<div class="seg-card${seg._genImg||seg._genVid?' generating':''}${isSelected?' selected':''}" id="card-${i}">
+    <div class="seg-img-wrap ${ratioClass}">
+      ${imgInner}
+      <div class="seg-num-badge">SEG ${i+1}</div>
+      ${seg.vidURL ? '<div class="seg-video-badge">&#9654; VIDEO</div>' : ''}
+      <div class="card-checkbox${isSelected?' checked':''}" onclick="toggleSelect(event,${i})"></div>
+    </div>
+    <div class="seg-body">
+      <div class="seg-type-row">
+        <span class="seg-type-pill ${typeClass}">${seg.type||'scene'}</span>
+        <span class="seg-ts">${seg.timestamp||'—'}</span>
+      </div>
+      <p class="seg-excerpt">${seg.text||''}</p>
+      <div class="seg-prompt-lbl">Visual prompt</div>
+      <p class="seg-prompt-txt">${seg.imagePrompt||''}</p>
+    </div>
+    <div class="seg-actions">
+      <button class="seg-act-btn" onclick="openEdit(${i})">&#9998; Edit</button>
+      <button class="seg-act-btn regen" onclick="regenSingle(${i})">&#8635; Regen</button>
+      <button class="seg-act-btn dl" onclick="dlSingle(${i})">&#8595; Save</button>
+      <button class="seg-act-btn del" onclick="deleteSeg(${i})">&#128465;</button>
+    </div>
+  </div>`;
+}
+
+function updateCard(i) {
+  const el = document.getElementById('card-'+i);
+  if (!el) return;
+  el.outerHTML = cardHTML(segs[i], i);
+}
+
+function updateStats() {
+  const imgs = segs.filter(s => s.imgURL||s.userMedia).length;
+  const vids = segs.filter(s => s.vidURL).length;
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat-chip"><span>${segs.length}</span> segments</div>
+    ${imgs ? `<div class="stat-chip"><span>${imgs}</span> images</div>` : ''}
+    ${vids ? `<div class="stat-chip"><span>${vids}</span> videos</div>` : ''}
+    <div class="stat-chip"><span>${selectedCards.size}</span> selected</div>
+  `;
+  document.getElementById('headerStats').innerHTML = `<span class="stat-chip"><span>${imgs+vids}/${segs.length*(outputType==='both'?2:1)}</span> ready</span>`;
+}
+
+/* ── SELECTION ── */
+function toggleSelect(e, i) {
+  e.stopPropagation();
+  if (selectedCards.has(i)) selectedCards.delete(i);
+  else selectedCards.add(i);
+  updateCard(i);
+  updateStats();
+  updateSelCount();
+  showBulkBar();
+}
+function selectAll() {
+  segs.forEach((_, i) => { if (segs[i].imgURL || segs[i].vidURL || segs[i].userMedia) selectedCards.add(i); });
+  renderAllCards(); updateStats(); updateSelCount();
+}
+function deselectAll() {
+  selectedCards.clear();
+  renderAllCards(); updateStats(); updateSelCount();
+}
+function updateSelCount() {
+  document.getElementById('selCount').textContent = selectedCards.size + ' selected';
+}
+function showBulkBar() {
+  document.getElementById('bulkBar').classList.remove('hidden');
+}
+function hideBulkBar() {
+  document.getElementById('bulkBar').classList.add('hidden');
+  deselectAll();
+}
+
+/* ── DOWNLOAD ── */
+async function dlSingle(i) {
+  if (i < 0 || i >= segs.length) return;
+  const seg = segs[i];
+  const src = seg.userMedia || seg.vidURL || seg.imgURL;
+  if (!src) { alert('No media generated for this segment yet.'); return; }
+  const ext = seg.vidURL && !seg.userMedia ? 'mp4' : 'png';
+  const name = `segment-${String(i+1).padStart(2,'0')}-${seg.type||'scene'}.${ext}`;
+  if (src.startsWith('http')) {
+    // Remote URL — fetch as blob
+    try {
+      const res = await fetch(src);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch(e) {
+      // Fallback: open in new tab
+      window.open(src, '_blank');
+    }
+  } else {
+    const a = document.createElement('a'); a.href = src; a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+}
+
+async function downloadSelected() {
+  if (selectedCards.size === 0) { alert('Select at least one segment first using the checkboxes.'); return; }
+  const btn = document.querySelector('#bulkBar .btn-ghost:nth-child(4)');
+  if (btn) { const o = btn.innerHTML; btn.innerHTML = '&#8987; Saving...'; btn.disabled = true;
+    const indices = Array.from(selectedCards).sort((a,b)=>a-b);
+    for (const i of indices) { await dlSingle(i); await new Promise(r => setTimeout(r, 500)); }
+    btn.innerHTML = '&#10003; Done!';
+    setTimeout(() => { btn.innerHTML = o; btn.disabled = false; }, 2000);
+  }
+}
+
+/* ── REGEN ── */
+async function regenSingle(i) {
+  if (!getKey()) { showError('API key required.'); return; }
+  segs[i]._errImg = false; segs[i]._errVid = false;
+  if (outputType !== 'videos') {
+    segs[i]._genImg = true; updateCard(i);
+    try {
+      const prompt = `True crime documentary. ${segs[i].imagePrompt}. Cinematic photorealistic dark noir. No text overlays.`;
+      segs[i].imgURL = await generateImage(prompt);
+      segs[i]._genImg = false;
+    } catch(e) { segs[i]._genImg = false; segs[i]._errImg = true; showError('Regen failed: ' + e.message); }
+    updateCard(i);
+  }
+  if (outputType !== 'photos') {
+    segs[i]._genVid = true; updateCard(i);
+    try {
+      const imgSrc = segs[i].imgURL || 'https://picsum.photos/1280/720';
+      segs[i].vidURL = await generateVideo(imgSrc, segs[i].videoPrompt);
+      segs[i]._genVid = false;
+    } catch(e) { segs[i]._genVid = false; segs[i]._errVid = true; showError('Video regen failed: ' + e.message); }
+    updateCard(i);
+  }
+  updateStats();
+}
+
+/* ── MODAL ── */
+function openEdit(i) {
+  editIdx = i; pendingUpload = null; pendingUploadName = '';
+  document.getElementById('uploadName').textContent = '';
+  const seg = segs[i];
+  document.getElementById('modalTitle').textContent = `Segment ${i+1} of ${segs.length}`;
+  document.getElementById('modalText').value = seg.text || '';
+  document.getElementById('modalPrompt').value = seg.imagePrompt || '';
+  document.getElementById('modalVidPrompt').textContent = seg.videoPrompt || '—';
+  const wrap = document.getElementById('modalImgWrap');
+  wrap.className = 'modal-img-wrap ' + aspectRatio;
+  const media = seg.userMedia || seg.vidURL || seg.imgURL;
+  if (media) {
+    if (seg.vidURL && !seg.userMedia) {
+      wrap.innerHTML = `<video src="${media}" style="width:100%;height:100%;object-fit:cover;" controls autoplay muted loop></video>`;
+    } else {
+      wrap.innerHTML = `<img src="${media}" alt="Seg ${i+1}" style="width:100%;height:100%;object-fit:cover;">`;
+    }
+  } else {
+    wrap.innerHTML = `<div class="modal-img-placeholder">No media generated yet</div>`;
+  }
+  document.getElementById('editModal').classList.add('open');
+}
+function closeModal() { document.getElementById('editModal').classList.remove('open'); editIdx = -1; }
+function saveModal() {
+  if (editIdx < 0) return;
+  segs[editIdx].text = document.getElementById('modalText').value;
+  segs[editIdx].imagePrompt = document.getElementById('modalPrompt').value;
+  if (pendingUpload) { segs[editIdx].userMedia = pendingUpload; segs[editIdx].userMediaName = pendingUploadName; segs[editIdx].imgURL = null; segs[editIdx].vidURL = null; }
+  closeModal(); updateCard(editIdx); updateStats();
+}
+function regenFromModal() { const i = editIdx; closeModal(); regenSingle(i); }
+function deleteFromModal() { const i = editIdx; closeModal(); deleteSeg(i); }
+function addAfterModal() { const i = editIdx; closeModal(); addBlank(i+1); }
+function handleUpload(e) {
+  const f = e.target.files[0]; if (!f) return;
+  pendingUploadName = f.name;
+  document.getElementById('uploadName').textContent = f.name;
+  const r = new FileReader();
+  r.onload = ev => {
+    pendingUpload = ev.target.result;
+    const wrap = document.getElementById('modalImgWrap');
+    if (f.type.startsWith('video/')) {
+      wrap.innerHTML = `<video src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover;" controls muted></video>`;
+    } else {
+      wrap.innerHTML = `<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover;">`;
+    }
+  };
+  r.readAsDataURL(f);
+}
+function copyVidPrompt() {
+  const t = document.getElementById('modalVidPrompt').textContent;
+  navigator.clipboard.writeText(t).then(() => {
+    const b = document.querySelector('.copy-chip'); const o = b.innerHTML;
+    b.innerHTML = '✓ Copied!'; setTimeout(() => b.innerHTML = o, 1600);
+  });
+}
+
+/* ── ADD / DELETE ── */
+function deleteSeg(i) { segs.splice(i,1); selectedCards.delete(i); renderAllCards(); updateStats(); }
+function addBlank(i) {
+  segs.splice(i, 0, {
+    timestamp:'—', type:'scene',
+    text:'New segment — click Edit to add your script excerpt.',
+    imagePrompt:'Cinematic dark noir establishing shot, empty rain-soaked road at night, single amber streetlight, dense fog, no people, photorealistic.',
+    videoPrompt:'Slow dolly push toward an empty night road, fog drifting through amber streetlight, cinematic.',
+    suggestedSearch:'empty night road rain',
+    imgURL:null, vidURL:null, userMedia:null, userMediaName:'', _genImg:false, _genVid:false, _errImg:false, _errVid:false
+  });
+  renderAllCards(); updateStats(); setTimeout(() => openEdit(i), 80);
+}
+function addSegAtEnd() { addBlank(segs.length); }
+
+/* ── EXPORT ── */
+function exportSheet() {
+  const lines = segs.map((s,i) =>
+    `=== SEGMENT ${i+1} [${s.timestamp}] (${(s.type||'scene').toUpperCase()}) ===\n` +
+    `Script: ${s.text}\n\nImage prompt:\n${s.imagePrompt}\n\nVideo prompt:\n${s.videoPrompt}\n\n` +
+    `Stock fallback: ${s.suggestedSearch||'—'}\n` +
+    `Image: ${s.userMedia?'custom':s.imgURL?'generated':'pending'} | Video: ${s.vidURL?'generated':'pending'}`
+  ).join('\n\n────────────────────────\n\n');
+  const out = `TRUE CRIME PRODUCTION SHEET\nGenerated: ${new Date().toLocaleString()}\nRatio: ${aspectRatio} | Output: ${outputType}\nSegments: ${segs.length}\n\n${'='.repeat(40)}\n\n${lines}`;
+  const blob = new Blob([out],{type:'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='production-sheet.txt'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ── UTILS ── */
+function setProgress(msg, pct) {
+  document.getElementById('progLabel').textContent = msg;
+  document.getElementById('progPct').textContent = pct + '%';
+  document.getElementById('progFill').style.width = pct + '%';
+}
+function showError(msg) { const el = document.getElementById('errorBox'); el.textContent = '⚠ '+msg; el.style.display = 'block'; }
+function hideError() { document.getElementById('errorBox').style.display = 'none'; }
+document.getElementById('editModal').addEventListener('click', function(e) { if(e.target===this) closeModal(); });
+
+const dz = document.querySelector('.drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor='var(--gold2)'; });
+dz.addEventListener('dragleave', () => { dz.style.borderColor=''; });
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.style.borderColor='';
+  const f = e.dataTransfer.files[0];
+  if (f && f.type==='text/plain') { const r = new FileReader(); r.onload = ev => { document.getElementById('scriptIn').value = ev.target.result; }; r.readAsText(f); }
+});
+</script>
+</body>
+</html>
