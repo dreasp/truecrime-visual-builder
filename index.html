@@ -408,7 +408,7 @@ let selectedCards = new Set();
 
 /* ── FAL.AI CONFIG ── */
 // Image model: fal-ai/flux-pro  Video model: fal-ai/kling-video/v1.6/standard/image-to-video
-const IMG_MODEL = 'fal-ai/flux/dev';
+const IMG_MODEL = 'fal-ai/gemini-flash-1-5-image-generation';
 const VID_MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
 const IMG_PRICES = { low: 0.025, medium: 0.05, high: 0.08 };
 const VID_PRICES = { 5: 0.14, 10: 0.28 };
@@ -559,20 +559,52 @@ async function falRequest(modelId, input) {
 }
 
 async function generateImage(prompt) {
-  const sizeMap = { landscape: 'landscape_16_9', portrait: 'portrait_9_16' };
-  const stepsMap = { low: 20, medium: 28, high: 40 };
-  const quality = document.getElementById('imgQuality').value;
-  const result = await falRequest(IMG_MODEL, {
+  // Try Gemini image generation first — best for natural language scene descriptions
+  const geminiModels = [
+    'fal-ai/gemini-flash-1-5-image-generation',
+    'fal-ai/gemini-pro-image-generation',
+    'fal-ai/ideogram/v3'
+  ];
+
+  for (const model of geminiModels) {
+    try {
+      const result = await falRequest(model, {
+        prompt: prompt,
+        aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9',
+        num_images: 1
+      });
+      const url = extractImageUrl(result);
+      if (url) return url;
+    } catch(e) {
+      console.warn('Model ' + model + ' failed:', e.message);
+      continue;
+    }
+  }
+
+  // Final fallback: Flux
+  const result = await falRequest('fal-ai/flux-pro/v2', {
     prompt: prompt,
-    image_size: sizeMap[aspectRatio],
-    num_inference_steps: stepsMap[quality],
+    image_size: aspectRatio === 'portrait' ? 'portrait_9_16' : 'landscape_16_9',
+    num_inference_steps: 28,
     guidance_scale: 3.5,
     num_images: 1,
     safety_tolerance: '5'
   });
-  if (result.images && result.images[0]) return result.images[0].url;
-  if (result.image && result.image.url) return result.image.url;
-  throw new Error('No image in FAL response: ' + JSON.stringify(Object.keys(result)));
+  const url = extractImageUrl(result);
+  if (url) return url;
+  throw new Error('All image models failed. Check your FAL.ai credits at fal.ai/dashboard');
+}
+
+function extractImageUrl(result) {
+  if (result.images && result.images[0]) {
+    return result.images[0].url || result.images[0];
+  }
+  if (result.image) {
+    return result.image.url || result.image;
+  }
+  if (result.url) return result.url;
+  if (result.output && result.output.images) return result.output.images[0].url;
+  return null;
 }
 
 async function generateVideo(imageUrl, prompt) {
