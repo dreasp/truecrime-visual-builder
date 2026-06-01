@@ -288,7 +288,7 @@ select{width:100%;background:var(--bg3);border:1px solid var(--border);border-ra
             <div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Video duration</div>
             <select id="vidDuration" onchange="updateCost()">
               <option value="5">5 seconds</option>
-              <option value="10" selected>10 seconds</option>
+              <option value="5" selected>5 seconds</option>
             </select>
           </div>
         </div>
@@ -378,7 +378,11 @@ select{width:100%;background:var(--bg3);border:1px solid var(--border);border-ra
         <video id="lightboxBothVid" src="" style="max-width:44vw;max-height:75vh;border-radius:8px;" controls autoplay loop muted></video>
       </div>
     </div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.4);font-family:'IBM Plex Mono',monospace;">click anywhere to close</div>
+    <div id="lightboxActions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;">
+      <button id="lbDlPhoto" onclick="event.stopPropagation();lbDownload('photo')" style="display:none;background:rgba(201,170,113,0.15);border:1px solid rgba(201,170,113,0.4);color:var(--gold);padding:7px 16px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Inter',sans-serif;">&#8595; Download photo</button>
+      <button id="lbDlVideo" onclick="event.stopPropagation();lbDownload('video')" style="display:none;background:rgba(61,142,240,0.15);border:1px solid rgba(61,142,240,0.4);color:var(--blue);padding:7px 16px;border-radius:6px;font-size:12px;cursor:pointer;font-family:'Inter',sans-serif;">&#8595; Download video</button>
+      <span style="font-size:11px;color:rgba(255,255,255,0.3);font-family:'IBM Plex Mono',monospace;">click anywhere to close</span>
+    </div>
   </div>
 </div>
 
@@ -446,9 +450,9 @@ let selectedCards = new Set();
 /* ── FAL.AI CONFIG ── */
 // Image model: fal-ai/flux-pro  Video model: fal-ai/kling-video/v1.6/standard/image-to-video
 const IMG_MODEL = 'fal-ai/flux/schnell';
-const VID_MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
+const VID_MODEL = 'fal-ai/ltx-video/image-to-video';
 const IMG_PRICES = { low: 0.003, medium: 0.025, high: 0.05 };
-const VID_PRICES = { 5: 0.14, 10: 0.28 };
+const VID_PRICES = { 5: 0.03, 10: 0.05 };
 
 /* ── DEMO SCRIPT ── */
 const DEMO = `CRIME & PSYCHE WITH DREA
@@ -656,20 +660,73 @@ function extractImageUrl(result) {
 }
 
 async function generateVideo(imageUrl, prompt) {
-  const dur = parseInt(document.getElementById('vidDuration').value || 10);
-  // Always require an image reference - Kling image-to-video is far more accurate than text-to-video
   if (!imageUrl || imageUrl.includes('picsum')) {
-    throw new Error('Please generate an image first before creating a video. The video animates your image.');
+    throw new Error('Please generate an image first — the video animates your image.');
   }
-  const result = await falRequest(VID_MODEL, {
+
+  // LTX Video only — ~$0.03 per clip. No fallback to avoid unexpected charges.
+  // Direct call first (fastest)
+  const body = JSON.stringify({
     prompt: prompt,
     image_url: imageUrl,
-    duration: String(dur),
-    aspect_ratio: aspectRatio === 'landscape' ? '16:9' : '9:16'
+    aspect_ratio: aspectRatio === 'landscape' ? '16:9' : '9:16',
+    num_frames: 121,
+    frame_rate: 24
   });
-  if (result.video && result.video.url) return result.video.url;
-  if (result.url) return result.url;
-  throw new Error('No video returned from FAL. Check your FAL.ai credits at fal.ai/dashboard');
+
+  const directRes = await fetch('https://fal.run/fal-ai/ltx-video/image-to-video', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
+    body
+  });
+
+  if (directRes.ok) {
+    const data = await directRes.json();
+    const url = data.video?.url || data.url || (data.videos && data.videos[0]?.url);
+    if (url) return url;
+  }
+
+  if (directRes.status === 401 || directRes.status === 403) {
+    throw new Error('API key rejected. Check your FAL.ai key at fal.ai/dashboard/keys');
+  }
+
+  // If direct call didn't return immediately, poll the queue
+  const submitRes = await fetch('https://queue.fal.run/fal-ai/ltx-video/image-to-video', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
+    body: JSON.stringify({ input: JSON.parse(body) })
+  });
+
+  if (!submitRes.ok) {
+    const err = await submitRes.text();
+    throw new Error('LTX Video failed (' + submitRes.status + '). Check your FAL.ai credits at fal.ai/dashboard. Details: ' + err.slice(0, 200));
+  }
+
+  const { request_id } = await submitRes.json();
+  const statusBase = 'https://queue.fal.run/fal-ai/ltx-video/image-to-video/requests/' + request_id;
+  const maxWait = 120000;
+  const start = Date.now();
+
+  while (Date.now() - start < maxWait) {
+    await new Promise(r => setTimeout(r, 2500));
+    const statusRes = await fetch(statusBase + '/status', {
+      headers: { 'Authorization': 'Key ' + getKey() }
+    });
+    if (!statusRes.ok) continue;
+    const status = await statusRes.json();
+    if (status.status === 'COMPLETED' || status.status === 'OK') {
+      const resultRes = await fetch(statusBase, { headers: { 'Authorization': 'Key ' + getKey() } });
+      const result = await resultRes.json();
+      const data = result.output || result;
+      const url = data.video?.url || data.url || (data.videos && data.videos[0]?.url);
+      if (url) return url;
+    }
+    if (status.status === 'FAILED' || status.status === 'ERROR') {
+      throw new Error('LTX Video generation failed. Check your FAL.ai credits at fal.ai/dashboard');
+    }
+  }
+
+  throw new Error('LTX Video timed out after 2 minutes. Try again or check fal.ai/dashboard');
 }
 
 // Generate video for a single segment from the Edit modal
@@ -687,7 +744,8 @@ async function generateVideoForSegment(i) {
   updateCard(i);
   try {
     const imgSrc = seg.userMedia || seg.imgURL;
-    const prompt = document.getElementById('modalVidPrompt').textContent;
+    // Use the video prompt exactly as shown — no wrapping added
+    const prompt = document.getElementById('modalVidPrompt').textContent.trim();
     segs[i].vidURL = await generateVideo(imgSrc, prompt);
     segs[i]._genVid = false;
     // Update modal image area to show video
@@ -1216,7 +1274,10 @@ function addBlank(i) {
 function addSegAtEnd() { addBlank(segs.length); }
 
 /* ── EXPORT ── */
+let lightboxSegIdx = -1;
+
 function openLightbox(i) {
+  lightboxSegIdx = i;
   const seg = segs[i];
   const lb = document.getElementById('lightbox');
   const img = document.getElementById('lightboxImg');
@@ -1224,34 +1285,47 @@ function openLightbox(i) {
   const both = document.getElementById('lightboxBoth');
   const bothImg = document.getElementById('lightboxBothImg');
   const bothVid = document.getElementById('lightboxBothVid');
+  const lbDlPhoto = document.getElementById('lbDlPhoto');
+  const lbDlVideo = document.getElementById('lbDlVideo');
 
-  // Hide all first
-  img.style.display = 'none';
-  vid.style.display = 'none';
-  both.style.display = 'none';
-  img.src = ''; vid.src = '';
-  bothImg.src = ''; bothVid.src = '';
+  img.style.display = 'none'; vid.style.display = 'none'; both.style.display = 'none';
+  img.src = ''; vid.src = ''; bothImg.src = ''; bothVid.src = '';
+  lbDlPhoto.style.display = 'none'; lbDlVideo.style.display = 'none';
 
   const hasImg = seg.userMedia || seg.imgURL;
   const hasVid = seg.vidURL;
 
   if (hasImg && hasVid) {
-    // Show both side by side
     bothImg.src = seg.userMedia || seg.imgURL;
     bothVid.src = seg.vidURL;
     both.style.display = 'flex';
+    lbDlPhoto.style.display = 'inline-flex';
+    lbDlVideo.style.display = 'inline-flex';
   } else if (hasVid) {
     vid.src = seg.vidURL;
     vid.style.display = 'block';
+    lbDlVideo.style.display = 'inline-flex';
   } else if (hasImg) {
     img.src = seg.userMedia || seg.imgURL;
     img.style.display = 'block';
+    lbDlPhoto.style.display = 'inline-flex';
   } else {
-    return; // nothing to show
+    return;
   }
 
   lb.style.display = 'flex';
   document.body.style.overflow = 'hidden';
+}
+
+async function lbDownload(type) {
+  if (lightboxSegIdx < 0) return;
+  const seg = segs[lightboxSegIdx];
+  const base = 'segment-' + String(lightboxSegIdx+1).padStart(2,'0') + '-' + (seg.type||'scene');
+  if (type === 'photo') {
+    await dlFile(seg.userMedia || seg.imgURL, base + '.png');
+  } else {
+    await dlFile(seg.vidURL, base + '.mp4');
+  }
 }
 
 function closeLightbox() {
