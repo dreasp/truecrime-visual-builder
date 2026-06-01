@@ -1321,10 +1321,49 @@ async function lbDownload(type) {
   if (lightboxSegIdx < 0) return;
   const seg = segs[lightboxSegIdx];
   const base = 'segment-' + String(lightboxSegIdx+1).padStart(2,'0') + '-' + (seg.type||'scene');
-  if (type === 'photo') {
-    await dlFile(seg.userMedia || seg.imgURL, base + '.png');
-  } else {
-    await dlFile(seg.vidURL, base + '.mp4');
+  const btn = type === 'photo' ? document.getElementById('lbDlPhoto') : document.getElementById('lbDlVideo');
+  const origText = btn.innerHTML;
+  btn.innerHTML = '&#8987; Saving...';
+  btn.disabled = true;
+
+  try {
+    const src = type === 'photo' ? (seg.userMedia || seg.imgURL) : seg.vidURL;
+    const ext = type === 'photo' ? 'png' : 'mp4';
+    const filename = base + '.' + ext;
+
+    if (!src) { alert('No ' + type + ' available.'); return; }
+
+    if (src.startsWith('data:')) {
+      // Base64 data URL — download directly
+      const a = document.createElement('a');
+      a.href = src; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    } else {
+      // Remote URL — fetch as blob first to force download dialog
+      const res = await fetch(src, { mode: 'cors' });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 3000);
+      } else {
+        // CORS blocked — open in new tab as fallback so user can save manually
+        window.open(src, '_blank');
+        alert('File opened in a new tab. Right-click the ' + type + ' and choose "Save as" to download it.');
+      }
+    }
+    btn.innerHTML = '&#10003; Saved!';
+    setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 2000);
+  } catch(e) {
+    // If fetch fails due to CORS, open in new tab
+    const src = type === 'photo' ? (seg.userMedia || seg.imgURL) : seg.vidURL;
+    if (src) {
+      window.open(src, '_blank');
+      alert('File opened in a new tab. Right-click and choose "Save as" to download.');
+    }
+    btn.innerHTML = origText; btn.disabled = false;
   }
 }
 
