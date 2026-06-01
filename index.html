@@ -612,7 +612,7 @@ async function falRequest(modelId, input) {
 }
 
 async function generateImage(prompt) {
-  const size = aspectRatio === 'portrait' ? 'portrait_9_16' : 'landscape_16_9';
+  const size = aspectRatio === 'portrait' ? 'portrait_16_9' : 'landscape_16_9';
 
   // Try direct synchronous calls — fastest, no queue polling needed
   const models = [
@@ -669,7 +669,7 @@ async function generateVideo(imageUrl, prompt) {
   const body = JSON.stringify({
     prompt: prompt,
     image_url: imageUrl,
-    aspect_ratio: aspectRatio === 'landscape' ? '16:9' : '9:16',
+    aspect_ratio: 'auto',
     num_frames: 121,
     frame_rate: 24
   });
