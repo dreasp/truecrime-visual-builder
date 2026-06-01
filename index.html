@@ -669,7 +669,8 @@ async function generateVideo(imageUrl, prompt) {
   const body = JSON.stringify({
     prompt: prompt,
     image_url: imageUrl,
-    aspect_ratio: 'auto',
+    width: aspectRatio === 'portrait' ? 720 : 1280,
+    height: aspectRatio === 'portrait' ? 1280 : 720,
     num_frames: 121,
     frame_rate: 24
   });
