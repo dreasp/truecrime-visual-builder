@@ -764,15 +764,30 @@ async function generateVideo(imageUrl, prompt) {
         console.log('Video:', state, Math.round((Date.now()-start_time)/1000) + 's');
       }
       if (state === 'COMPLETED') {
-        const resultRes = await fetch(response_url, {
+        // Always construct result URL from model + request_id to avoid truncated response_url
+        const resultUrl = 'https://queue.fal.run/' + MODEL + '/requests/' + request_id + '/response';
+        console.log('Fetching result from:', resultUrl);
+        const resultRes = await fetch(resultUrl, {
           method: 'GET',
           headers: { 'Authorization': 'Key ' + getKey() }
         });
-        if (!resultRes.ok) throw new Error('Result fetch failed: ' + resultRes.status);
+        if (!resultRes.ok) {
+          // Try the response_url from submit as fallback
+          const fallbackRes = await fetch(response_url, {
+            method: 'GET',
+            headers: { 'Authorization': 'Key ' + getKey() }
+          });
+          if (!fallbackRes.ok) throw new Error('Result fetch failed: ' + fallbackRes.status);
+          const fallbackResult = await fallbackRes.json();
+          const fallbackUrl = fallbackResult?.video?.url || fallbackResult?.output?.video?.url;
+          if (fallbackUrl) { console.log('Video done (fallback):', fallbackUrl); return fallbackUrl; }
+          throw new Error('Result fetch failed: ' + resultRes.status);
+        }
         const result = await resultRes.json();
-        const url = result?.video?.url || result?.output?.video?.url;
+        console.log('Result keys:', Object.keys(result));
+        const url = result?.video?.url || result?.output?.video?.url || result?.videos?.[0]?.url;
         if (url) { console.log('Video done:', url); return url; }
-        throw new Error('Completed but no URL. Keys: ' + Object.keys(result).join(', '));
+        throw new Error('Completed but no video URL. Response: ' + JSON.stringify(result).slice(0, 300));
       }
       if (state === 'FAILED' || state === 'ERROR') {
         throw new Error('Video failed: ' + (s.error || s.detail || 'unknown'));
