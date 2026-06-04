@@ -450,9 +450,9 @@ let selectedCards = new Set();
 /* ── FAL.AI CONFIG ── */
 // Image model: fal-ai/flux-pro  Video model: fal-ai/kling-video/v1.6/standard/image-to-video
 const IMG_MODEL = 'fal-ai/flux/schnell';
-const VID_MODEL = 'fal-ai/ltx-video/image-to-video';
+const VID_MODEL = 'fal-ai/ltx-2.3/image-to-video/fast';
 const IMG_PRICES = { low: 0.003, medium: 0.025, high: 0.05 };
-const VID_PRICES = { 5: 0.03, 10: 0.05 };
+const VID_PRICES = { 5: 0.20, 10: 0.40 };
 
 /* ── DEMO SCRIPT ── */
 const DEMO = `CRIME & PSYCHE WITH DREA
@@ -664,18 +664,17 @@ async function generateVideo(imageUrl, prompt) {
     throw new Error('Please generate an image first — the video animates your image.');
   }
 
-  // LTX Video only — ~$0.03 per clip. No fallback to avoid unexpected charges.
-  // Direct call first (fastest)
+  // LTX-2.3 Fast — native 9:16 portrait support, ~$0.04/s at 1080p
+  // No fallback to avoid unexpected charges
   const body = JSON.stringify({
     prompt: prompt,
     image_url: imageUrl,
-    width: aspectRatio === 'portrait' ? 720 : 1280,
-    height: aspectRatio === 'portrait' ? 1280 : 720,
-    num_frames: 121,
-    frame_rate: 24
+    aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9',
+    resolution: '720p',
+    duration: '5'
   });
 
-  const directRes = await fetch('https://fal.run/fal-ai/ltx-video/image-to-video', {
+  const directRes = await fetch('https://fal.run/fal-ai/ltx-2.3/image-to-video/fast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
     body
@@ -692,7 +691,7 @@ async function generateVideo(imageUrl, prompt) {
   }
 
   // If direct call didn't return immediately, poll the queue
-  const submitRes = await fetch('https://queue.fal.run/fal-ai/ltx-video/image-to-video', {
+  const submitRes = await fetch('https://queue.fal.run/fal-ai/ltx-2.3/image-to-video/fast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
     body: JSON.stringify({ input: JSON.parse(body) })
@@ -700,11 +699,11 @@ async function generateVideo(imageUrl, prompt) {
 
   if (!submitRes.ok) {
     const err = await submitRes.text();
-    throw new Error('LTX Video failed (' + submitRes.status + '). Check your FAL.ai credits at fal.ai/dashboard. Details: ' + err.slice(0, 200));
+    throw new Error('LTX-2.3 Video failed (' + submitRes.status + '). Check your FAL.ai credits at fal.ai/dashboard. Details: ' + err.slice(0, 200));
   }
 
   const { request_id } = await submitRes.json();
-  const statusBase = 'https://queue.fal.run/fal-ai/ltx-video/image-to-video/requests/' + request_id;
+  const statusBase = 'https://queue.fal.run/fal-ai/ltx-2.3/image-to-video/fast/requests/' + request_id;
   const maxWait = 120000;
   const start = Date.now();
 
