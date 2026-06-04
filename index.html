@@ -414,8 +414,18 @@ select{width:100%;background:var(--bg3);border:1px solid var(--border);border-ra
         <p id="modalVidPrompt"></p>
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
           <button class="copy-chip" onclick="copyVidPrompt()">&#10064; Copy prompt</button>
-          <button id="modalGenVidBtn" class="btn btn-ghost btn-sm" style="color:var(--blue);border-color:rgba(61,142,240,0.3);font-size:11px;" onclick="generateVideoForSegment(editIdx)">&#9654; Generate video</button>
-          <span style="font-size:10px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">animates your image above</span>
+          <button id="modalGenVidBtn" class="btn btn-ghost btn-sm" style="color:var(--blue);border-color:rgba(61,142,240,0.3);font-size:11px;" onclick="generateVideoForSegment(editIdx)">&#9654; Generate video from image</button>
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--gold);margin-bottom:6px;">Or upload your own photo to animate</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <label class="btn btn-ghost btn-sm" style="cursor:pointer;font-size:11px;">
+              &#128247; Upload photo
+              <input type="file" style="display:none" accept="image/*" onchange="handleUploadForVideo(event)">
+            </label>
+            <span id="uploadForVideoName" style="font-size:11px;color:var(--muted);"></span>
+          </div>
+          <div style="font-size:10px;color:var(--muted2);margin-top:5px;line-height:1.6;">Upload any image and the video will animate it using the prompt above.</div>
         </div>
       </div>
       <div>
@@ -454,9 +464,9 @@ let selectedCards = new Set();
 /* ── FAL.AI CONFIG ── */
 // Image model: fal-ai/flux-pro  Video model: fal-ai/kling-video/v1.6/standard/image-to-video
 const IMG_MODEL = 'fal-ai/flux/schnell';
-const VID_MODEL = 'fal-ai/ltx-2.3/image-to-video/fast';
+const VID_MODEL = 'fal-ai/ltx-2.3-quality/image-to-video/lora';
 const IMG_PRICES = { low: 0.003, medium: 0.025, high: 0.05 };
-const VID_PRICES = { '6': 0.24, '8': 0.32, '10': 0.40 };
+const VID_PRICES = { '6': 0.30, '8': 0.40, '10': 0.50 };
 
 /* ── DEMO SCRIPT ── */
 const DEMO = `CRIME & PSYCHE WITH DREA
@@ -665,22 +675,22 @@ function extractImageUrl(result) {
 }
 
 async function generateVideo(imageUrl, prompt) {
-  if (!imageUrl || imageUrl.includes('picsum')) {
-    throw new Error('Please generate an image first — the video animates your image.');
+  if (!imageUrl) {
+    throw new Error('No image available to animate.');
   }
 
-  const MODEL = 'fal-ai/ltx-2.3/image-to-video/fast';
+  // Correct model and params based on fal.ai playground
+  const MODEL = 'fal-ai/ltx-2.3-quality/image-to-video/lora';
   const input = {
     prompt: prompt,
     image_url: imageUrl,
-    aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9',
-    resolution: '1080p',
-    duration: '6',
-    fps: 25,
-    generate_audio: false
+    num_frames: 121,
+    resolution: 'auto',
+    generate_audio: false,
+    loras: []
   };
 
-  // Step 1: Submit to queue
+  // Submit to queue
   const submitRes = await fetch('https://queue.fal.run/' + MODEL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
@@ -692,75 +702,56 @@ async function generateVideo(imageUrl, prompt) {
     if (submitRes.status === 401 || submitRes.status === 403) {
       throw new Error('API key rejected. Check at fal.ai/dashboard/keys');
     }
-    throw new Error('Submit failed (' + submitRes.status + '): ' + err.slice(0, 200));
+    throw new Error('Video submit failed (' + submitRes.status + '): ' + err.slice(0, 200));
   }
 
   const submitData = await submitRes.json();
   const request_id = submitData.request_id;
-  // FAL returns exact URLs to use — use these instead of constructing manually
   const status_url = submitData.status_url;
   const response_url = submitData.response_url;
 
-  if (!request_id) {
-    throw new Error('No request_id from FAL: ' + JSON.stringify(submitData).slice(0, 200));
-  }
+  if (!request_id) throw new Error('No request_id from FAL: ' + JSON.stringify(submitData).slice(0, 200));
+  console.log('Video submitted. ID:', request_id);
 
-  console.log('Video job submitted. request_id:', request_id);
-
-  // Step 2: Poll using the exact status_url from the submit response
-  const maxWait = 300000; // 5 minutes
+  // Poll using status_url from submit response
+  const maxWait = 300000;
   const start_time = Date.now();
   let lastStatus = '';
 
   while (Date.now() - start_time < maxWait) {
     await new Promise(r => setTimeout(r, 4000));
-
     try {
-      // Use the status_url returned by FAL directly
-      const pollUrl = status_url || ('https://queue.fal.run/' + MODEL + '/requests/' + request_id + '/status');
-      const statusRes = await fetch(pollUrl, {
+      const statusRes = await fetch(status_url, {
         method: 'GET',
         headers: { 'Authorization': 'Key ' + getKey() }
       });
-
-      if (!statusRes.ok) {
-        console.warn('Status poll returned', statusRes.status, '— retrying...');
-        continue;
+      if (!statusRes.ok) { console.warn('Poll returned', statusRes.status); continue; }
+      const s = await statusRes.json();
+      const state = s.status || '';
+      if (state !== lastStatus) {
+        lastStatus = state;
+        console.log('Video:', state, Math.round((Date.now()-start_time)/1000) + 's');
       }
-
-      const statusData = await statusRes.json();
-      const s = statusData.status || '';
-
-      if (s !== lastStatus) {
-        lastStatus = s;
-        console.log('Video status:', s, '—', Math.round((Date.now() - start_time) / 1000) + 's elapsed');
-      }
-
-      if (s === 'COMPLETED') {
-        // Fetch result using the response_url from FAL
-        const resultUrl = response_url || statusData.response_url || ('https://queue.fal.run/' + MODEL + '/requests/' + request_id + '/response');
-        const resultRes = await fetch(resultUrl, {
+      if (state === 'COMPLETED') {
+        const resultRes = await fetch(response_url, {
           method: 'GET',
           headers: { 'Authorization': 'Key ' + getKey() }
         });
         if (!resultRes.ok) throw new Error('Result fetch failed: ' + resultRes.status);
         const result = await resultRes.json();
         const url = result?.video?.url || result?.output?.video?.url;
-        if (url) { console.log('Video ready:', url); return url; }
-        throw new Error('Completed but no video URL. Keys: ' + Object.keys(result).join(', '));
+        if (url) { console.log('Video done:', url); return url; }
+        throw new Error('Completed but no URL. Keys: ' + Object.keys(result).join(', '));
       }
-
-      if (s === 'FAILED' || s === 'ERROR') {
-        throw new Error('Video generation failed: ' + (statusData.error || statusData.detail || 'unknown error'));
+      if (state === 'FAILED' || state === 'ERROR') {
+        throw new Error('Video failed: ' + (s.error || s.detail || 'unknown'));
       }
-
     } catch(e) {
-      if (e.message.includes('failed:') || e.message.includes('rejected')) throw e;
-      console.warn('Poll error (retrying):', e.message);
+      if (e.message.startsWith('Video failed') || e.message.startsWith('Completed but') || e.message.startsWith('Result fetch')) throw e;
+      console.warn('Poll error:', e.message);
     }
   }
-
-  throw new Error('Timed out after 5 minutes. Check fal.ai/dashboard — your video may still be processing there.');
+  throw new Error('Timed out. Check fal.ai/dashboard — your video may still be processing.');
 }
 
 
@@ -778,10 +769,16 @@ async function generateVideoForSegment(i) {
   segs[i]._genVid = true;
   updateCard(i);
   try {
-    const imgSrc = seg.userMedia || seg.imgURL;
-    // Use the video prompt exactly as shown — no wrapping added
+    // Use uploaded override image if provided, otherwise use generated image
+    const imgSrc = seg.videoSourceOverride || seg.userMedia || seg.imgURL;
+    if (!imgSrc) throw new Error('No image available. Generate or upload an image first.');
     const prompt = document.getElementById('modalVidPrompt').textContent.trim();
     segs[i].vidURL = await generateVideo(imgSrc, prompt);
+    // Clear the override after use
+    if (seg.videoSourceOverride) {
+      segs[i].videoSourceOverride = null;
+      segs[i].videoSourceName = '';
+    }
     segs[i]._genVid = false;
     // Update modal image area to show video
     const wrap = document.getElementById('modalImgWrap');
@@ -1269,6 +1266,24 @@ function saveModal() {
 function regenFromModal() { const i = editIdx; closeModal(); regenSingle(i); }
 function deleteFromModal() { const i = editIdx; closeModal(); deleteSeg(i); }
 function addAfterModal() { const i = editIdx; closeModal(); addBlank(i+1); }
+function handleUploadForVideo(e) {
+  const f = e.target.files[0]; if (!f) return;
+  document.getElementById('uploadForVideoName').textContent = f.name;
+  const r = new FileReader();
+  r.onload = ev => {
+    // Store as pending upload specifically for video generation
+    if (editIdx >= 0) {
+      segs[editIdx].videoSourceOverride = ev.target.result;
+      segs[editIdx].videoSourceName = f.name;
+      // Show preview in modal
+      const wrap = document.getElementById('modalImgWrap');
+      wrap.innerHTML = '<img src="' + ev.target.result + '" style="width:100%;height:100%;object-fit:cover;">';
+      document.getElementById('uploadForVideoName').textContent = f.name + ' ✓ ready to animate';
+    }
+  };
+  r.readAsDataURL(f);
+}
+
 function handleUpload(e) {
   const f = e.target.files[0]; if (!f) return;
   pendingUploadName = f.name;
