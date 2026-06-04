@@ -1493,31 +1493,49 @@ async function generateVideoFromUpload() {
     // For base64 images, we need to upload to FAL storage first
     let imageUrl = sidebarPhotoDataURL;
     if (sidebarPhotoDataURL.startsWith('data:')) {
-      statusEl.textContent = 'Uploading photo to FAL...';
-      // Convert base64 to blob and upload
-      const base64 = sidebarPhotoDataURL.split(',')[1];
+      statusEl.textContent = 'Uploading photo to FAL storage...';
       const mime = sidebarPhotoDataURL.split(';')[0].split(':')[1];
+      const base64 = sidebarPhotoDataURL.split(',')[1];
       const byteChars = atob(base64);
       const byteArr = new Uint8Array(byteChars.length);
       for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
       const blob = new Blob([byteArr], { type: mime });
+      const fileName = 'photo.' + (mime.split('/')[1] || 'jpg');
 
-      const formData = new FormData();
-      formData.append('file', blob, 'photo.jpg');
-      const uploadRes = await fetch('https://rest.alpha.fal.ai/storage/upload/initiate', {
+      // Step 1: Initiate upload — get a presigned URL
+      const initiateRes = await fetch('https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3', {
         method: 'POST',
-        headers: { 'Authorization': 'Key ' + getKey() },
-        body: JSON.stringify({ file_name: 'photo.jpg', content_type: mime })
+        headers: {
+          'Authorization': 'Key ' + getKey(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ file_name: fileName, content_type: mime })
       });
 
-      if (uploadRes.ok) {
-        const uploadData = await uploadRes.json();
-        if (uploadData.upload_url) {
-          await fetch(uploadData.upload_url, { method: 'PUT', body: blob, headers: { 'Content-Type': mime } });
-          imageUrl = uploadData.file_url || uploadData.url || sidebarPhotoDataURL;
-        }
+      if (!initiateRes.ok) {
+        const err = await initiateRes.text();
+        throw new Error('FAL storage initiate failed (' + initiateRes.status + '): ' + err.slice(0, 200));
       }
-      // If upload fails, try with base64 directly — some models accept it
+
+      const initiateData = await initiateRes.json();
+      const uploadUrl = initiateData.upload_url;
+      const fileUrl = initiateData.file_url;
+
+      if (!uploadUrl) throw new Error('No upload_url from FAL storage. Response: ' + JSON.stringify(initiateData).slice(0, 200));
+
+      // Step 2: Upload the file to the presigned URL
+      statusEl.textContent = 'Uploading photo...';
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': mime },
+        body: blob
+      });
+
+      if (!putRes.ok) throw new Error('Photo upload failed: ' + putRes.status);
+
+      imageUrl = fileUrl;
+      statusEl.textContent = 'Photo uploaded. Generating video...';
+      console.log('Photo uploaded to FAL:', imageUrl);
     }
 
     statusEl.textContent = 'Submitting video job...';
