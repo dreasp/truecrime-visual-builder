@@ -452,7 +452,7 @@ let selectedCards = new Set();
 const IMG_MODEL = 'fal-ai/flux/schnell';
 const VID_MODEL = 'fal-ai/ltx-2.3/image-to-video/fast';
 const IMG_PRICES = { low: 0.003, medium: 0.025, high: 0.05 };
-const VID_PRICES = { 5: 0.20, 10: 0.40 };
+const VID_PRICES = { 6: 0.24, 8: 0.32, 10: 0.40 };
 
 /* ── DEMO SCRIPT ── */
 const DEMO = `CRIME & PSYCHE WITH DREA
@@ -670,8 +670,10 @@ async function generateVideo(imageUrl, prompt) {
     prompt: prompt,
     image_url: imageUrl,
     aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9',
-    resolution: '720p',
-    duration: '5'
+    resolution: '1080p',
+    duration: '6',
+    fps: '25',
+    generate_audio: false
   });
 
   const directRes = await fetch('https://fal.run/fal-ai/ltx-2.3/image-to-video/fast', {
