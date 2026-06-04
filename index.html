@@ -664,72 +664,81 @@ async function generateVideo(imageUrl, prompt) {
     throw new Error('Please generate an image first — the video animates your image.');
   }
 
-  // LTX-2.3 Fast — native 9:16 portrait support, ~$0.04/s at 1080p
-  // No fallback to avoid unexpected charges
-  const body = JSON.stringify({
+  const input = {
     prompt: prompt,
     image_url: imageUrl,
     aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9',
     resolution: '1080p',
     duration: '6',
-    fps: '25',
+    fps: 25,
     generate_audio: false
-  });
+  };
 
-  const directRes = await fetch('https://fal.run/fal-ai/ltx-2.3/image-to-video/fast', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
-    body
-  });
-
-  if (directRes.ok) {
-    const data = await directRes.json();
-    const url = data.video?.url || data.url || (data.videos && data.videos[0]?.url);
-    if (url) return url;
-  }
-
-  if (directRes.status === 401 || directRes.status === 403) {
-    throw new Error('API key rejected. Check your FAL.ai key at fal.ai/dashboard/keys');
-  }
-
-  // If direct call didn't return immediately, poll the queue
+  // Step 1: Submit job to queue
   const submitRes = await fetch('https://queue.fal.run/fal-ai/ltx-2.3/image-to-video/fast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
-    body: JSON.stringify({ input: JSON.parse(body) })
+    body: JSON.stringify({ input })
   });
 
   if (!submitRes.ok) {
     const err = await submitRes.text();
-    throw new Error('LTX-2.3 Video failed (' + submitRes.status + '). Check your FAL.ai credits at fal.ai/dashboard. Details: ' + err.slice(0, 200));
+    if (submitRes.status === 401 || submitRes.status === 403) {
+      throw new Error('API key rejected. Check your FAL.ai key at fal.ai/dashboard/keys');
+    }
+    throw new Error('Video submit failed (' + submitRes.status + '): ' + err.slice(0, 300));
   }
 
-  const { request_id } = await submitRes.json();
+  const submitData = await submitRes.json();
+  const request_id = submitData.request_id;
+  if (!request_id) throw new Error('No request_id returned from FAL. Response: ' + JSON.stringify(submitData).slice(0, 200));
+
+  // Step 2: Poll for result — video takes 30-90 seconds typically
   const statusBase = 'https://queue.fal.run/fal-ai/ltx-2.3/image-to-video/fast/requests/' + request_id;
-  const maxWait = 120000;
+  const maxWait = 180000; // 3 minutes
   const start = Date.now();
+  let lastStatus = '';
 
   while (Date.now() - start < maxWait) {
-    await new Promise(r => setTimeout(r, 2500));
-    const statusRes = await fetch(statusBase + '/status', {
-      headers: { 'Authorization': 'Key ' + getKey() }
-    });
-    if (!statusRes.ok) continue;
-    const status = await statusRes.json();
-    if (status.status === 'COMPLETED' || status.status === 'OK') {
-      const resultRes = await fetch(statusBase, { headers: { 'Authorization': 'Key ' + getKey() } });
-      const result = await resultRes.json();
-      const data = result.output || result;
-      const url = data.video?.url || data.url || (data.videos && data.videos[0]?.url);
-      if (url) return url;
+    await new Promise(r => setTimeout(r, 3000));
+
+    let statusData;
+    try {
+      const statusRes = await fetch(statusBase + '/status', {
+        headers: { 'Authorization': 'Key ' + getKey() }
+      });
+      if (!statusRes.ok) continue;
+      statusData = await statusRes.json();
+    } catch(e) { continue; }
+
+    const s = statusData.status || statusData.state || '';
+    if (s !== lastStatus) {
+      lastStatus = s;
+      console.log('Video status:', s, 'elapsed:', Math.round((Date.now()-start)/1000) + 's');
     }
-    if (status.status === 'FAILED' || status.status === 'ERROR') {
-      throw new Error('LTX Video generation failed. Check your FAL.ai credits at fal.ai/dashboard');
+
+    if (s === 'COMPLETED' || s === 'OK' || s === 'completed') {
+      const resultRes = await fetch(statusBase, {
+        headers: { 'Authorization': 'Key ' + getKey() }
+      });
+      if (!resultRes.ok) throw new Error('Could not fetch video result: ' + resultRes.status);
+      const result = await resultRes.json();
+      // Try multiple response paths
+      const data = result.output || result.data || result;
+      const url = data?.video?.url || data?.url || result?.video?.url;
+      if (url) return url;
+      throw new Error('Video completed but no URL found. Response: ' + JSON.stringify(data).slice(0, 200));
+    }
+
+    if (s === 'FAILED' || s === 'ERROR' || s === 'failed') {
+      const errDetail = statusData.error || statusData.detail || 'unknown error';
+      throw new Error('Video generation failed: ' + errDetail);
     }
   }
 
-  throw new Error('LTX Video timed out after 2 minutes. Try again or check fal.ai/dashboard');
+  throw new Error('Video timed out after 3 minutes. The job may still be processing — check fal.ai/dashboard for results.');
 }
+
 
 // Generate video for a single segment from the Edit modal
 async function generateVideoForSegment(i) {
