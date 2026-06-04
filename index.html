@@ -452,7 +452,7 @@ let selectedCards = new Set();
 const IMG_MODEL = 'fal-ai/flux/schnell';
 const VID_MODEL = 'fal-ai/ltx-2.3/image-to-video/fast';
 const IMG_PRICES = { low: 0.003, medium: 0.025, high: 0.05 };
-const VID_PRICES = { 6: 0.24, 8: 0.32, 10: 0.40 };
+const VID_PRICES = { '6': 0.24, '8': 0.32, '10': 0.40 };
 
 /* ── DEMO SCRIPT ── */
 const DEMO = `CRIME & PSYCHE WITH DREA
@@ -508,19 +508,20 @@ function setPromptMode(mode) {
 function updateCost() {
   const n = Math.max(1, parseInt(document.getElementById('segCount').value) || 1);
   const q = document.getElementById('imgQuality').value;
-  const dur = parseInt(document.getElementById('vidDuration').value || 10);
+  const durEl = document.getElementById('vidDuration');
+  const dur = durEl ? durEl.value || '6' : '6';
+  const imgPrice = IMG_PRICES[q] || 0.003;
+  const vidPrice = VID_PRICES[dur] || 0.24;
   let cost = 0, detail = '';
   if (outputType === 'photos') {
-    cost = n * IMG_PRICES[q];
-    detail = `${n} images × $${IMG_PRICES[q].toFixed(3)}`;
+    cost = n * imgPrice;
+    detail = n + ' images × $' + imgPrice.toFixed(3);
   } else if (outputType === 'videos') {
-    cost = n * VID_PRICES[dur];
-    detail = `${n} videos × $${VID_PRICES[dur].toFixed(2)} (${dur}s)`;
+    cost = n * vidPrice;
+    detail = n + ' videos × $' + vidPrice.toFixed(2) + ' (' + dur + 's)';
   } else {
-    const imgCost = n * IMG_PRICES[q];
-    const vidCost = n * VID_PRICES[dur];
-    cost = imgCost + vidCost;
-    detail = `${n} images + ${n} videos`;
+    cost = n * imgPrice + n * vidPrice;
+    detail = n + ' images + ' + n + ' videos';
   }
   document.getElementById('costAmt').textContent = '$' + cost.toFixed(2);
   document.getElementById('costDetail').textContent = detail;
@@ -664,6 +665,7 @@ async function generateVideo(imageUrl, prompt) {
     throw new Error('Please generate an image first — the video animates your image.');
   }
 
+  const MODEL = 'fal-ai/ltx-2.3/image-to-video/fast';
   const input = {
     prompt: prompt,
     image_url: imageUrl,
@@ -674,8 +676,8 @@ async function generateVideo(imageUrl, prompt) {
     generate_audio: false
   };
 
-  // Step 1: Submit job to queue
-  const submitRes = await fetch('https://queue.fal.run/fal-ai/ltx-2.3/image-to-video/fast', {
+  // Step 1: Submit to queue
+  const submitRes = await fetch('https://queue.fal.run/' + MODEL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
     body: JSON.stringify({ input })
@@ -691,52 +693,79 @@ async function generateVideo(imageUrl, prompt) {
 
   const submitData = await submitRes.json();
   const request_id = submitData.request_id;
-  if (!request_id) throw new Error('No request_id returned from FAL. Response: ' + JSON.stringify(submitData).slice(0, 200));
+  if (!request_id) throw new Error('No request_id from FAL: ' + JSON.stringify(submitData).slice(0, 200));
 
-  // Step 2: Poll for result — video takes 30-90 seconds typically
-  const statusBase = 'https://queue.fal.run/fal-ai/ltx-2.3/image-to-video/fast/requests/' + request_id;
-  const maxWait = 180000; // 3 minutes
+  // Step 2: Poll status — correct FAL REST pattern
+  // Status:  GET https://queue.fal.run/{model}/requests/{id}/status
+  // Result:  GET https://queue.fal.run/{model}/requests/{id}
+  const base = 'https://queue.fal.run/' + MODEL + '/requests/' + request_id;
+  const maxWait = 300000; // 5 minutes
   const start = Date.now();
   let lastStatus = '';
+  let pollInterval = 4000;
 
   while (Date.now() - start < maxWait) {
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, pollInterval));
 
     let statusData;
     try {
-      const statusRes = await fetch(statusBase + '/status', {
+      const statusRes = await fetch(base + '/status', {
+        method: 'GET',
         headers: { 'Authorization': 'Key ' + getKey() }
       });
-      if (!statusRes.ok) continue;
+
+      if (statusRes.status === 405) {
+        // 405 on status endpoint — try without /status suffix
+        const altRes = await fetch(base, {
+          method: 'GET',
+          headers: { 'Authorization': 'Key ' + getKey() }
+        });
+        if (!altRes.ok) { pollInterval = 5000; continue; }
+        statusData = await altRes.json();
+        // If result has video URL directly, we're done
+        const directUrl = statusData?.output?.video?.url || statusData?.video?.url;
+        if (directUrl) return directUrl;
+        const s2 = statusData.status || '';
+        if (s2 === 'COMPLETED' || s2 === 'OK') {
+          const url = statusData?.output?.video?.url || statusData?.video?.url;
+          if (url) return url;
+        }
+        continue;
+      }
+
+      if (!statusRes.ok) { pollInterval = 5000; continue; }
       statusData = await statusRes.json();
-    } catch(e) { continue; }
+    } catch(e) { pollInterval = 5000; continue; }
 
     const s = statusData.status || statusData.state || '';
     if (s !== lastStatus) {
       lastStatus = s;
-      console.log('Video status:', s, 'elapsed:', Math.round((Date.now()-start)/1000) + 's');
+      console.log('Video:', s, Math.round((Date.now()-start)/1000) + 's elapsed');
     }
 
     if (s === 'COMPLETED' || s === 'OK' || s === 'completed') {
-      const resultRes = await fetch(statusBase, {
+      // Fetch final result
+      const resultRes = await fetch(base, {
+        method: 'GET',
         headers: { 'Authorization': 'Key ' + getKey() }
       });
-      if (!resultRes.ok) throw new Error('Could not fetch video result: ' + resultRes.status);
+      if (!resultRes.ok) throw new Error('Result fetch failed: ' + resultRes.status);
       const result = await resultRes.json();
-      // Try multiple response paths
-      const data = result.output || result.data || result;
-      const url = data?.video?.url || data?.url || result?.video?.url;
+      const url = result?.output?.video?.url || result?.video?.url || result?.data?.video?.url;
       if (url) return url;
-      throw new Error('Video completed but no URL found. Response: ' + JSON.stringify(data).slice(0, 200));
+      throw new Error('Completed but no URL. Keys: ' + Object.keys(result).join(', '));
     }
 
     if (s === 'FAILED' || s === 'ERROR' || s === 'failed') {
-      const errDetail = statusData.error || statusData.detail || 'unknown error';
-      throw new Error('Video generation failed: ' + errDetail);
+      throw new Error('Video failed: ' + (statusData.error || statusData.detail || 'unknown'));
     }
+
+    // Still in queue or processing — increase poll interval slightly
+    if (s === 'IN_QUEUE') pollInterval = 5000;
+    if (s === 'IN_PROGRESS') pollInterval = 3000;
   }
 
-  throw new Error('Video timed out after 3 minutes. The job may still be processing — check fal.ai/dashboard for results.');
+  throw new Error('Video timed out after 5 minutes. Check fal.ai/dashboard — the job may have completed there.');
 }
 
 
