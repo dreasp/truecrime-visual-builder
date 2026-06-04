@@ -253,6 +253,37 @@ select{width:100%;background:var(--bg3);border:1px solid var(--border);border-ra
 
         <div class="divider"></div>
 
+        <!-- Upload photo to animate -->
+        <div>
+          <label class="fl">Animate your own photo</label>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
+            <div style="font-size:11px;color:var(--muted2);line-height:1.6;">Upload any photo and generate a video from it directly — no script or segment needed.</div>
+            <label style="display:flex;align-items:center;gap:8px;background:var(--bg4);border:1px dashed var(--border2);border-radius:var(--rsm);padding:10px 12px;cursor:pointer;transition:border-color .2s;" id="uploadPhotoLabel">
+              <span style="font-size:18px;">&#128247;</span>
+              <div>
+                <div style="font-size:12px;font-weight:500;color:var(--text);" id="uploadPhotoText">Click to upload a photo</div>
+                <div style="font-size:11px;color:var(--muted2);">jpg, png, webp accepted</div>
+              </div>
+              <input type="file" id="uploadPhotoInput" style="display:none" accept="image/*" onchange="handleSidebarPhotoUpload(event)">
+            </label>
+            <img id="uploadPhotoPreview" src="" alt="" style="display:none;width:100%;border-radius:var(--rsm);max-height:140px;object-fit:cover;border:1px solid var(--border);">
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Video prompt</div>
+              <textarea id="uploadPhotoPrompt" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rsm);padding:8px 10px;color:var(--text);font-size:12px;line-height:1.6;resize:vertical;min-height:60px;outline:none;font-family:'Inter',sans-serif;" placeholder="Describe how to animate this photo...&#10;e.g. people walking around on the ferry deck"></textarea>
+            </div>
+            <button class="btn btn-gold btn-full" id="uploadPhotoGenBtn" onclick="generateVideoFromUpload()" disabled>
+              &#9654; Generate video from photo
+            </button>
+            <div id="uploadPhotoStatus" style="font-size:11px;color:var(--muted);display:none;font-family:'IBM Plex Mono',monospace;"></div>
+            <div id="uploadPhotoResult" style="display:none;flex-direction:column;gap:8px;">
+              <video id="uploadPhotoVideo" src="" style="width:100%;border-radius:var(--rsm);border:1px solid var(--border);" controls loop muted></video>
+              <button class="btn btn-ghost btn-full" onclick="downloadUploadedVideoResult()" style="color:var(--green);border-color:rgba(39,174,96,0.3);font-size:12px;">&#8595; Download video</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
         <!-- Script -->
         <div id="scriptSection">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -1423,6 +1454,93 @@ function closeLightbox() {
   document.getElementById('lightboxVid').pause();
   document.getElementById('lightboxBothVid').pause();
   document.body.style.overflow = '';
+}
+
+/* ── SIDEBAR PHOTO UPLOAD TO VIDEO ── */
+let sidebarPhotoDataURL = null;
+let sidebarVideoResultURL = null;
+
+function handleSidebarPhotoUpload(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    sidebarPhotoDataURL = ev.target.result;
+    document.getElementById('uploadPhotoPreview').src = ev.target.result;
+    document.getElementById('uploadPhotoPreview').style.display = 'block';
+    document.getElementById('uploadPhotoText').textContent = f.name;
+    document.getElementById('uploadPhotoGenBtn').disabled = false;
+  };
+  r.readAsDataURL(f);
+}
+
+async function generateVideoFromUpload() {
+  if (!sidebarPhotoDataURL) { showError('Please upload a photo first.'); return; }
+  if (!getKey()) { showError('Please enter your FAL.ai API key.'); return; }
+  const prompt = document.getElementById('uploadPhotoPrompt').value.trim() || 'Animate this image with natural, realistic movement';
+
+  const btn = document.getElementById('uploadPhotoGenBtn');
+  const statusEl = document.getElementById('uploadPhotoStatus');
+  const resultEl = document.getElementById('uploadPhotoResult');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="width:11px;height:11px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:6px;"></span> Generating...';
+  statusEl.style.display = 'block';
+  statusEl.textContent = 'Submitting to FAL...';
+  resultEl.style.display = 'none';
+  hideError();
+
+  try {
+    // For base64 images, we need to upload to FAL storage first
+    let imageUrl = sidebarPhotoDataURL;
+    if (sidebarPhotoDataURL.startsWith('data:')) {
+      statusEl.textContent = 'Uploading photo to FAL...';
+      // Convert base64 to blob and upload
+      const base64 = sidebarPhotoDataURL.split(',')[1];
+      const mime = sidebarPhotoDataURL.split(';')[0].split(':')[1];
+      const byteChars = atob(base64);
+      const byteArr = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([byteArr], { type: mime });
+
+      const formData = new FormData();
+      formData.append('file', blob, 'photo.jpg');
+      const uploadRes = await fetch('https://rest.alpha.fal.ai/storage/upload/initiate', {
+        method: 'POST',
+        headers: { 'Authorization': 'Key ' + getKey() },
+        body: JSON.stringify({ file_name: 'photo.jpg', content_type: mime })
+      });
+
+      if (uploadRes.ok) {
+        const uploadData = await uploadRes.json();
+        if (uploadData.upload_url) {
+          await fetch(uploadData.upload_url, { method: 'PUT', body: blob, headers: { 'Content-Type': mime } });
+          imageUrl = uploadData.file_url || uploadData.url || sidebarPhotoDataURL;
+        }
+      }
+      // If upload fails, try with base64 directly — some models accept it
+    }
+
+    statusEl.textContent = 'Submitting video job...';
+    const vidUrl = await generateVideo(imageUrl, prompt);
+    sidebarVideoResultURL = vidUrl;
+
+    const vidEl = document.getElementById('uploadPhotoVideo');
+    vidEl.src = vidUrl;
+    resultEl.style.display = 'flex';
+    statusEl.textContent = '✓ Video ready!';
+    btn.innerHTML = '&#9654; Generate video from photo';
+    btn.disabled = false;
+  } catch(e) {
+    showError('Video generation failed: ' + e.message);
+    statusEl.style.display = 'none';
+    btn.innerHTML = '&#9654; Generate video from photo';
+    btn.disabled = false;
+  }
+}
+
+async function downloadUploadedVideoResult() {
+  if (!sidebarVideoResultURL) return;
+  await dlFile(sidebarVideoResultURL, 'animated-photo.mp4');
 }
 
 function exportSheet() {
