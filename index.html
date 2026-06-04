@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>True Crime Visual Builder v4</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<!-- v4.9 -->
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -686,86 +690,77 @@ async function generateVideo(imageUrl, prompt) {
   if (!submitRes.ok) {
     const err = await submitRes.text();
     if (submitRes.status === 401 || submitRes.status === 403) {
-      throw new Error('API key rejected. Check your FAL.ai key at fal.ai/dashboard/keys');
+      throw new Error('API key rejected. Check at fal.ai/dashboard/keys');
     }
-    throw new Error('Video submit failed (' + submitRes.status + '): ' + err.slice(0, 300));
+    throw new Error('Submit failed (' + submitRes.status + '): ' + err.slice(0, 200));
   }
 
   const submitData = await submitRes.json();
   const request_id = submitData.request_id;
-  if (!request_id) throw new Error('No request_id from FAL: ' + JSON.stringify(submitData).slice(0, 200));
+  // FAL returns exact URLs to use — use these instead of constructing manually
+  const status_url = submitData.status_url;
+  const response_url = submitData.response_url;
 
-  // Step 2: Poll status — correct FAL REST pattern
-  // Status:  GET https://queue.fal.run/{model}/requests/{id}/status
-  // Result:  GET https://queue.fal.run/{model}/requests/{id}
-  const base = 'https://queue.fal.run/' + MODEL + '/requests/' + request_id;
+  if (!request_id) {
+    throw new Error('No request_id from FAL: ' + JSON.stringify(submitData).slice(0, 200));
+  }
+
+  console.log('Video job submitted. request_id:', request_id);
+
+  // Step 2: Poll using the exact status_url from the submit response
   const maxWait = 300000; // 5 minutes
-  const start = Date.now();
+  const start_time = Date.now();
   let lastStatus = '';
-  let pollInterval = 4000;
 
-  while (Date.now() - start < maxWait) {
-    await new Promise(r => setTimeout(r, pollInterval));
+  while (Date.now() - start_time < maxWait) {
+    await new Promise(r => setTimeout(r, 4000));
 
-    let statusData;
     try {
-      const statusRes = await fetch(base + '/status', {
+      // Use the status_url returned by FAL directly
+      const pollUrl = status_url || ('https://queue.fal.run/' + MODEL + '/requests/' + request_id + '/status');
+      const statusRes = await fetch(pollUrl, {
         method: 'GET',
         headers: { 'Authorization': 'Key ' + getKey() }
       });
 
-      if (statusRes.status === 405) {
-        // 405 on status endpoint — try without /status suffix
-        const altRes = await fetch(base, {
-          method: 'GET',
-          headers: { 'Authorization': 'Key ' + getKey() }
-        });
-        if (!altRes.ok) { pollInterval = 5000; continue; }
-        statusData = await altRes.json();
-        // If result has video URL directly, we're done
-        const directUrl = statusData?.output?.video?.url || statusData?.video?.url;
-        if (directUrl) return directUrl;
-        const s2 = statusData.status || '';
-        if (s2 === 'COMPLETED' || s2 === 'OK') {
-          const url = statusData?.output?.video?.url || statusData?.video?.url;
-          if (url) return url;
-        }
+      if (!statusRes.ok) {
+        console.warn('Status poll returned', statusRes.status, '— retrying...');
         continue;
       }
 
-      if (!statusRes.ok) { pollInterval = 5000; continue; }
-      statusData = await statusRes.json();
-    } catch(e) { pollInterval = 5000; continue; }
+      const statusData = await statusRes.json();
+      const s = statusData.status || '';
 
-    const s = statusData.status || statusData.state || '';
-    if (s !== lastStatus) {
-      lastStatus = s;
-      console.log('Video:', s, Math.round((Date.now()-start)/1000) + 's elapsed');
+      if (s !== lastStatus) {
+        lastStatus = s;
+        console.log('Video status:', s, '—', Math.round((Date.now() - start_time) / 1000) + 's elapsed');
+      }
+
+      if (s === 'COMPLETED') {
+        // Fetch result using the response_url from FAL
+        const resultUrl = response_url || statusData.response_url || ('https://queue.fal.run/' + MODEL + '/requests/' + request_id + '/response');
+        const resultRes = await fetch(resultUrl, {
+          method: 'GET',
+          headers: { 'Authorization': 'Key ' + getKey() }
+        });
+        if (!resultRes.ok) throw new Error('Result fetch failed: ' + resultRes.status);
+        const result = await resultRes.json();
+        const url = result?.video?.url || result?.output?.video?.url;
+        if (url) { console.log('Video ready:', url); return url; }
+        throw new Error('Completed but no video URL. Keys: ' + Object.keys(result).join(', '));
+      }
+
+      if (s === 'FAILED' || s === 'ERROR') {
+        throw new Error('Video generation failed: ' + (statusData.error || statusData.detail || 'unknown error'));
+      }
+
+    } catch(e) {
+      if (e.message.includes('failed:') || e.message.includes('rejected')) throw e;
+      console.warn('Poll error (retrying):', e.message);
     }
-
-    if (s === 'COMPLETED' || s === 'OK' || s === 'completed') {
-      // Fetch final result
-      const resultRes = await fetch(base, {
-        method: 'GET',
-        headers: { 'Authorization': 'Key ' + getKey() }
-      });
-      if (!resultRes.ok) throw new Error('Result fetch failed: ' + resultRes.status);
-      const result = await resultRes.json();
-      const url = result?.output?.video?.url || result?.video?.url || result?.data?.video?.url;
-      if (url) return url;
-      throw new Error('Completed but no URL. Keys: ' + Object.keys(result).join(', '));
-    }
-
-    if (s === 'FAILED' || s === 'ERROR' || s === 'failed') {
-      throw new Error('Video failed: ' + (statusData.error || statusData.detail || 'unknown'));
-    }
-
-    // Still in queue or processing — increase poll interval slightly
-    if (s === 'IN_QUEUE') pollInterval = 5000;
-    if (s === 'IN_PROGRESS') pollInterval = 3000;
   }
 
-  throw new Error('Video timed out after 5 minutes. Check fal.ai/dashboard — the job may have completed there.');
+  throw new Error('Timed out after 5 minutes. Check fal.ai/dashboard — your video may still be processing there.');
 }
 
 
