@@ -706,11 +706,8 @@ function extractImageUrl(result) {
 }
 
 async function generateVideo(imageUrl, prompt) {
-  if (!imageUrl) {
-    throw new Error('No image available to animate.');
-  }
+  if (!imageUrl) throw new Error('No image available to animate.');
 
-  // Correct model and params based on fal.ai playground
   const MODEL = 'fal-ai/ltx-2.3-quality/image-to-video/lora';
   const input = {
     prompt: prompt,
@@ -721,85 +718,36 @@ async function generateVideo(imageUrl, prompt) {
     loras: []
   };
 
-  // Submit to queue
-  const submitRes = await fetch('https://queue.fal.run/' + MODEL, {
+  console.log('Submitting video to:', MODEL);
+  console.log('Image URL:', imageUrl.slice(0, 80));
+
+  // Use synchronous fal.run — keeps connection open until done
+  // This works for videos because fal.run supports long-running requests
+  const res = await fetch('https://fal.run/' + MODEL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
-    body: JSON.stringify({ input })
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Key ' + getKey()
+    },
+    body: JSON.stringify(input)
   });
 
-  if (!submitRes.ok) {
-    const err = await submitRes.text();
-    if (submitRes.status === 401 || submitRes.status === 403) {
-      throw new Error('API key rejected. Check at fal.ai/dashboard/keys');
-    }
-    throw new Error('Video submit failed (' + submitRes.status + '): ' + err.slice(0, 200));
+  console.log('fal.run response status:', res.status);
+
+  if (!res.ok) {
+    const err = await res.text();
+    if (res.status === 401 || res.status === 403) throw new Error('API key rejected. Check fal.ai/dashboard/keys');
+    throw new Error('Video failed (' + res.status + '): ' + err.slice(0, 300));
   }
 
-  const submitData = await submitRes.json();
-  const request_id = submitData.request_id;
-  const status_url = submitData.status_url;
-  const response_url = submitData.response_url;
+  const result = await res.json();
+  console.log('Result keys:', Object.keys(result));
+  console.log('Full result:', JSON.stringify(result).slice(0, 500));
 
-  if (!request_id) throw new Error('No request_id from FAL: ' + JSON.stringify(submitData).slice(0, 200));
-  console.log('Video submitted. ID:', request_id);
+  const url = result?.video?.url || result?.output?.video?.url || result?.videos?.[0]?.url;
+  if (url) { console.log('Video URL:', url); return url; }
 
-  // Poll using status_url from submit response
-  const maxWait = 300000;
-  const start_time = Date.now();
-  let lastStatus = '';
-
-  while (Date.now() - start_time < maxWait) {
-    await new Promise(r => setTimeout(r, 4000));
-    try {
-      const statusRes = await fetch(status_url, {
-        method: 'GET',
-        headers: { 'Authorization': 'Key ' + getKey() }
-      });
-      if (!statusRes.ok) { console.warn('Poll returned', statusRes.status); continue; }
-      const s = await statusRes.json();
-      const state = s.status || '';
-      if (state !== lastStatus) {
-        lastStatus = state;
-        console.log('Video:', state, Math.round((Date.now()-start_time)/1000) + 's');
-      }
-      if (state === 'COMPLETED') {
-        // Try all known FAL result endpoint patterns
-        const resultEndpoints = [
-          'https://queue.fal.run/' + MODEL + '/requests/' + request_id,
-          response_url,
-          'https://fal.run/' + MODEL + '/requests/' + request_id,
-        ].filter(Boolean);
-
-        for (const url of resultEndpoints) {
-          console.log('Trying result URL:', url);
-          try {
-            const res = await fetch(url, {
-              method: 'GET',
-              headers: { 'Authorization': 'Key ' + getKey() }
-            });
-            console.log('Result URL', url, '→', res.status);
-            if (!res.ok) continue;
-            const result = await res.json();
-            console.log('Result:', JSON.stringify(result).slice(0, 300));
-            const videoUrl = result?.video?.url
-              || result?.output?.video?.url
-              || result?.data?.video?.url
-              || result?.videos?.[0]?.url;
-            if (videoUrl) { console.log('Video ready:', videoUrl); return videoUrl; }
-          } catch(e) { console.warn('Result fetch error:', e.message); }
-        }
-        throw new Error('Video completed but could not retrieve URL. Check fal.ai/dashboard → Requests for your video.');
-      }
-      if (state === 'FAILED' || state === 'ERROR') {
-        throw new Error('Video failed: ' + (s.error || s.detail || 'unknown'));
-      }
-    } catch(e) {
-      if (e.message.startsWith('Video failed') || e.message.startsWith('Completed but') || e.message.startsWith('Result fetch')) throw e;
-      console.warn('Poll error:', e.message);
-    }
-  }
-  throw new Error('Timed out. Check fal.ai/dashboard — your video may still be processing.');
+  throw new Error('No video URL in response. Keys: ' + Object.keys(result).join(', ') + ' | ' + JSON.stringify(result).slice(0, 200));
 }
 
 
