@@ -1,3 +1,4 @@
+<!-- BUILD: 20260604-VIDEO-FIX -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,7 +8,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<!-- v4.9 -->
+<!-- v4.10 -->
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -322,8 +323,8 @@ select{width:100%;background:var(--bg3);border:1px solid var(--border);border-ra
           <div id="videoDuration" style="display:none;margin-bottom:10px;">
             <div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Video duration</div>
             <select id="vidDuration" onchange="updateCost()">
-              <option value="5">5 seconds</option>
               <option value="5" selected>5 seconds</option>
+              <option value="10">10 seconds</option>
             </select>
           </div>
         </div>
@@ -497,7 +498,7 @@ let selectedCards = new Set();
 const IMG_MODEL = 'fal-ai/flux/schnell';
 const VID_MODEL = 'fal-ai/ltx-2.3-quality/image-to-video/lora';
 const IMG_PRICES = { low: 0.003, medium: 0.025, high: 0.05 };
-const VID_PRICES = { '6': 0.30, '8': 0.40, '10': 0.50 };
+const VID_PRICES = { '5': 0.28, '10': 0.56 };
 
 /* ── DEMO SCRIPT ── */
 const DEMO = `CRIME & PSYCHE WITH DREA
@@ -708,46 +709,89 @@ function extractImageUrl(result) {
 async function generateVideo(imageUrl, prompt) {
   if (!imageUrl) throw new Error('No image available to animate.');
 
-  const MODEL = 'fal-ai/ltx-2.3-quality/image-to-video/lora';
+  // Use Kling 1.6 standard — proven to work, simpler API
+  const MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
+  const dur = document.getElementById('vidDuration') ? (document.getElementById('vidDuration').value || '5') : '5';
+
   const input = {
     prompt: prompt,
     image_url: imageUrl,
-    num_frames: 121,
-    resolution: 'auto',
-    generate_audio: false,
-    loras: []
+    duration: dur,
+    aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9'
   };
 
-  console.log('Submitting video to:', MODEL);
-  console.log('Image URL:', imageUrl.slice(0, 80));
+  console.log('Submitting to Kling 1.6:', MODEL);
 
-  // Use synchronous fal.run — keeps connection open until done
-  // This works for videos because fal.run supports long-running requests
-  const res = await fetch('https://fal.run/' + MODEL, {
+  // Submit to queue
+  const submitRes = await fetch('https://queue.fal.run/' + MODEL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Key ' + getKey()
-    },
-    body: JSON.stringify(input)
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
+    body: JSON.stringify({ input })
   });
 
-  console.log('fal.run response status:', res.status);
-
-  if (!res.ok) {
-    const err = await res.text();
-    if (res.status === 401 || res.status === 403) throw new Error('API key rejected. Check fal.ai/dashboard/keys');
-    throw new Error('Video failed (' + res.status + '): ' + err.slice(0, 300));
+  if (!submitRes.ok) {
+    const err = await submitRes.text();
+    if (submitRes.status === 401 || submitRes.status === 403) throw new Error('API key rejected. Check fal.ai/dashboard/keys');
+    throw new Error('Submit failed (' + submitRes.status + '): ' + err.slice(0,200));
   }
 
-  const result = await res.json();
-  console.log('Result keys:', Object.keys(result));
-  console.log('Full result:', JSON.stringify(result).slice(0, 500));
+  const submitData = await submitRes.json();
+  console.log('Submit response:', JSON.stringify(submitData).slice(0, 300));
 
-  const url = result?.video?.url || result?.output?.video?.url || result?.videos?.[0]?.url;
-  if (url) { console.log('Video URL:', url); return url; }
+  // FAL returns exact URLs to use — use them directly
+  const status_url = submitData.status_url;
+  const response_url = submitData.response_url;
+  const request_id = submitData.request_id;
 
-  throw new Error('No video URL in response. Keys: ' + Object.keys(result).join(', ') + ' | ' + JSON.stringify(result).slice(0, 200));
+  if (!status_url) throw new Error('No status_url from FAL. Got: ' + JSON.stringify(submitData).slice(0,200));
+
+  console.log('Status URL:', status_url);
+  console.log('Response URL:', response_url);
+
+  // Poll status_url until COMPLETED
+  const maxWait = 300000;
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWait) {
+    await new Promise(r => setTimeout(r, 5000));
+
+    try {
+      const statusRes = await fetch(status_url + '?logs=0', {
+        headers: { 'Authorization': 'Key ' + getKey() }
+      });
+
+      if (!statusRes.ok) {
+        console.warn('Status poll returned', statusRes.status);
+        continue;
+      }
+
+      const statusData = await statusRes.json();
+      const state = statusData.status || '';
+      console.log('Status:', state, Math.round((Date.now()-startTime)/1000) + 's');
+
+      if (state === 'COMPLETED') {
+        // Fetch result using response_url
+        const resultRes = await fetch(response_url, {
+          headers: { 'Authorization': 'Key ' + getKey() }
+        });
+        if (!resultRes.ok) throw new Error('Result fetch failed: ' + resultRes.status);
+        const result = await resultRes.json();
+        console.log('Result:', JSON.stringify(result).slice(0, 400));
+        const url = result?.video?.url || result?.output?.video?.url || result?.videos?.[0]?.url;
+        if (url) { console.log('Video ready:', url); return url; }
+        throw new Error('No URL in result: ' + JSON.stringify(result).slice(0,200));
+      }
+
+      if (state === 'FAILED' || state === 'ERROR') {
+        throw new Error('Video failed: ' + (statusData.error || statusData.detail || JSON.stringify(statusData).slice(0,200)));
+      }
+    } catch(e) {
+      if (e.message.startsWith('Video failed') || e.message.startsWith('No URL') || e.message.startsWith('Result fetch')) throw e;
+      console.warn('Poll error (will retry):', e.message);
+    }
+  }
+
+  throw new Error('Timed out after 5 minutes. Check fal.ai/dashboard — your video may have completed there.');
 }
 
 
