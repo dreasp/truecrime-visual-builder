@@ -756,26 +756,45 @@ async function generateVideo(imageUrl, prompt) {
     await new Promise(r => setTimeout(r, 5000));
 
     try {
-      const statusRes = await fetch(status_url + '?logs=0', {
-        headers: { 'Authorization': 'Key ' + getKey() }
+      // Use XHR for GET to avoid browser sending body which causes 422
+      const statusData = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', status_url + '?logs=0', true);
+        xhr.setRequestHeader('Authorization', 'Key ' + getKey());
+        xhr.responseType = 'json';
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
+          else reject(new Error('Status poll failed: ' + xhr.status));
+        };
+        xhr.onerror = () => reject(new Error('Network error'));
+        xhr.send(); // No body
       });
-
-      if (!statusRes.ok) {
-        console.warn('Status poll returned', statusRes.status);
-        continue;
-      }
-
-      const statusData = await statusRes.json();
       const state = statusData.status || '';
       console.log('Status:', state, Math.round((Date.now()-startTime)/1000) + 's');
 
       if (state === 'COMPLETED') {
-        // Fetch result using response_url
-        const resultRes = await fetch(response_url, {
-          headers: { 'Authorization': 'Key ' + getKey() }
+        // Use request_id to build result URL — avoids 422 body issue with response_url
+        const MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
+        const resultUrl = 'https://queue.fal.run/' + MODEL + '/requests/' + request_id + '/response';
+        console.log('Fetching result from:', resultUrl);
+
+        // Use XMLHttpRequest instead of fetch to avoid body being sent on GET
+        const result = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', resultUrl, true);
+          xhr.setRequestHeader('Authorization', 'Key ' + getKey());
+          xhr.responseType = 'json';
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(xhr.response);
+            } else {
+              reject(new Error('Result fetch failed: ' + xhr.status));
+            }
+          };
+          xhr.onerror = () => reject(new Error('Network error on result fetch'));
+          xhr.send(); // No body — XHR GET never sends body
         });
-        if (!resultRes.ok) throw new Error('Result fetch failed: ' + resultRes.status);
-        const result = await resultRes.json();
+
         console.log('Result:', JSON.stringify(result).slice(0, 400));
         const url = result?.video?.url || result?.output?.video?.url || result?.videos?.[0]?.url;
         if (url) { console.log('Video ready:', url); return url; }
