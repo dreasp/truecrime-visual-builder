@@ -9,6 +9,12 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <!-- v4.10 -->
+<script type="module">
+  import { fal } from "https://esm.sh/@fal-ai/client@1.6.2";
+  window.falClient = fal;
+  window.falClientReady = true;
+  console.log("FAL official client loaded");
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -659,39 +665,18 @@ async function falRequest(modelId, input) {
 }
 
 async function generateImage(prompt) {
+  if (!window.falClient) throw new Error('FAL client still loading — wait a few seconds and try again.');
+  window.falClient.config({ credentials: getKey() });
+
   const size = aspectRatio === 'portrait' ? 'portrait_16_9' : 'landscape_16_9';
-
-  // Try direct synchronous calls — fastest, no queue polling needed
-  const models = [
-    { id: 'fal-ai/flux/schnell', body: { prompt, image_size: size, num_inference_steps: 4, num_images: 1 } },
-    { id: 'fal-ai/flux-pro/v2',  body: { prompt, image_size: size, num_inference_steps: 20, guidance_scale: 3.5, num_images: 1, safety_tolerance: '5' } },
-    { id: 'fal-ai/flux/dev',     body: { prompt, image_size: size, num_inference_steps: 20, guidance_scale: 3.5, num_images: 1 } }
-  ];
-
-  for (const m of models) {
-    try {
-      // Direct call — returns immediately when model is warm (~2-5 seconds)
-      const res = await fetch('https://fal.run/' + m.id, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
-        body: JSON.stringify(m.body)
-      });
-      if (!res.ok) {
-        const txt = await res.text();
-        if (res.status === 401 || res.status === 403) throw new Error('Auth error ' + res.status + ': ' + txt);
-        console.warn(m.id + ' returned ' + res.status + ', trying next model');
-        continue;
-      }
-      const data = await res.json();
-      const url = extractImageUrl(data);
-      if (url) { console.log('Generated with ' + m.id); return url; }
-    } catch(e) {
-      if (e.message.startsWith('Auth error')) throw e;
-      console.warn(m.id + ' failed:', e.message);
-    }
-  }
-
-  throw new Error('All image models failed. Check your FAL.ai API key and credits at fal.ai/dashboard');
+  const result = await window.falClient.subscribe('fal-ai/flux/schnell', {
+    input: { prompt: prompt, image_size: size, num_inference_steps: 4, num_images: 1 },
+    logs: false
+  });
+  const data = result.data || result;
+  const url = extractImageUrl(data);
+  if (url) return url;
+  throw new Error('No image returned. Keys: ' + Object.keys(data).join(', '));
 }
 
 function extractImageUrl(result) {
@@ -708,109 +693,35 @@ function extractImageUrl(result) {
 
 async function generateVideo(imageUrl, prompt) {
   if (!imageUrl) throw new Error('No image available to animate.');
+  if (!window.falClient) throw new Error('FAL client still loading — wait a few seconds and try again.');
 
-  // Use Kling 1.6 standard — proven to work, simpler API
+  // Official FAL client handles submit, polling and result retrieval internally
+  window.falClient.config({ credentials: getKey() });
+
   const MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
-  const dur = document.getElementById('vidDuration') ? (document.getElementById('vidDuration').value || '5') : '5';
+  const durEl = document.getElementById('vidDuration');
+  const dur = durEl ? (durEl.value || '5') : '5';
 
-  const input = {
-    prompt: prompt,
-    image_url: imageUrl,
-    duration: dur,
-    aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9'
-  };
+  console.log('Submitting to', MODEL);
 
-  console.log('Submitting to Kling 1.6:', MODEL);
-
-  // Submit to queue
-  const submitRes = await fetch('https://queue.fal.run/' + MODEL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Key ' + getKey() },
-    body: JSON.stringify({ input })
+  const result = await window.falClient.subscribe(MODEL, {
+    input: {
+      prompt: prompt,
+      image_url: imageUrl,
+      duration: dur,
+      aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9'
+    },
+    logs: false,
+    onQueueUpdate: (update) => {
+      console.log('Video status:', update.status);
+    }
   });
 
-  if (!submitRes.ok) {
-    const err = await submitRes.text();
-    if (submitRes.status === 401 || submitRes.status === 403) throw new Error('API key rejected. Check fal.ai/dashboard/keys');
-    throw new Error('Submit failed (' + submitRes.status + '): ' + err.slice(0,200));
-  }
-
-  const submitData = await submitRes.json();
-  console.log('Submit response:', JSON.stringify(submitData).slice(0, 300));
-
-  // FAL returns exact URLs to use — use them directly
-  const status_url = submitData.status_url;
-  const response_url = submitData.response_url;
-  const request_id = submitData.request_id;
-
-  if (!status_url) throw new Error('No status_url from FAL. Got: ' + JSON.stringify(submitData).slice(0,200));
-
-  console.log('Status URL:', status_url);
-  console.log('Response URL:', response_url);
-
-  // Poll status_url until COMPLETED
-  const maxWait = 300000;
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < maxWait) {
-    await new Promise(r => setTimeout(r, 5000));
-
-    try {
-      // Use XHR for GET to avoid browser sending body which causes 422
-      const statusData = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', status_url + '?logs=0', true);
-        xhr.setRequestHeader('Authorization', 'Key ' + getKey());
-        xhr.responseType = 'json';
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
-          else reject(new Error('Status poll failed: ' + xhr.status));
-        };
-        xhr.onerror = () => reject(new Error('Network error'));
-        xhr.send(); // No body
-      });
-      const state = statusData.status || '';
-      console.log('Status:', state, Math.round((Date.now()-startTime)/1000) + 's');
-
-      if (state === 'COMPLETED') {
-        // Use request_id to build result URL — avoids 422 body issue with response_url
-        const MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
-        const resultUrl = response_url || ('https://queue.fal.run/' + MODEL + '/requests/' + request_id);
-        console.log('Fetching result from:', resultUrl);
-
-        // Use XMLHttpRequest instead of fetch to avoid body being sent on GET
-        const result = await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('GET', resultUrl, true);
-          xhr.setRequestHeader('Authorization', 'Key ' + getKey());
-          xhr.responseType = 'json';
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(xhr.response);
-            } else {
-              reject(new Error('Result fetch failed: ' + xhr.status));
-            }
-          };
-          xhr.onerror = () => reject(new Error('Network error on result fetch'));
-          xhr.send(); // No body — XHR GET never sends body
-        });
-
-        console.log('Result:', JSON.stringify(result).slice(0, 400));
-        const url = result?.video?.url || result?.output?.video?.url || result?.videos?.[0]?.url;
-        if (url) { console.log('Video ready:', url); return url; }
-        throw new Error('No URL in result: ' + JSON.stringify(result).slice(0,200));
-      }
-
-      if (state === 'FAILED' || state === 'ERROR') {
-        throw new Error('Video failed: ' + (statusData.error || statusData.detail || JSON.stringify(statusData).slice(0,200)));
-      }
-    } catch(e) {
-      if (e.message.startsWith('Video failed') || e.message.startsWith('No URL') || e.message.startsWith('Result fetch')) throw e;
-      console.warn('Poll error (will retry):', e.message);
-    }
-  }
-
-  throw new Error('Timed out after 5 minutes. Check fal.ai/dashboard — your video may have completed there.');
+  console.log('Result:', JSON.stringify(result).slice(0, 400));
+  const data = result.data || result;
+  const url = data?.video?.url || data?.videos?.[0]?.url;
+  if (url) { console.log('Video ready:', url); return url; }
+  throw new Error('No video URL returned. Keys: ' + Object.keys(data).join(', '));
 }
 
 
