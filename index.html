@@ -775,7 +775,7 @@ async function generateVideo(imageUrl, prompt) {
       if (state === 'COMPLETED') {
         // Use request_id to build result URL — avoids 422 body issue with response_url
         const MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
-        const resultUrl = 'https://queue.fal.run/' + MODEL + '/requests/' + request_id + '/response';
+        const resultUrl = response_url || ('https://queue.fal.run/' + MODEL + '/requests/' + request_id);
         console.log('Fetching result from:', resultUrl);
 
         // Use XMLHttpRequest instead of fetch to avoid body being sent on GET
