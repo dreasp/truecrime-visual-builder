@@ -327,11 +327,18 @@ select{width:100%;background:var(--bg3);border:1px solid var(--border);border-ra
             </div>
           </div>
           <div id="videoDuration" style="display:none;margin-bottom:10px;">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Video model</div>
+            <select id="vidModel" onchange="updateCost()" style="margin-bottom:10px;">
+              <option value="ltx" selected>LTX Video — cheapest (~$0.04)</option>
+              <option value="wan">Wan 2.1 — budget (~$0.10)</option>
+              <option value="kling">Kling 1.6 — best quality (~$0.28)</option>
+            </select>
             <div style="font-size:11px;color:var(--muted);margin-bottom:5px;">Video duration</div>
             <select id="vidDuration" onchange="updateCost()">
               <option value="5" selected>5 seconds</option>
               <option value="10">10 seconds</option>
             </select>
+            <div style="font-size:10px;color:var(--muted2);margin-top:6px;line-height:1.6;" id="modelHint">Fast and cheap. Great for atmospheric B-roll and landscapes.</div>
           </div>
         </div>
 
@@ -504,7 +511,14 @@ let selectedCards = new Set();
 const IMG_MODEL = 'fal-ai/flux/schnell';
 const VID_MODEL = 'fal-ai/ltx-2.3-quality/image-to-video/lora';
 const IMG_PRICES = { low: 0.003, medium: 0.025, high: 0.05 };
-const VID_PRICES = { '5': 0.28, '10': 0.56 };
+const VID_MODELS = {
+  ltx:   { id: 'fal-ai/ltx-video-v097/multiconditioning', label: 'LTX Video',  price5: 0.04, price10: 0.08,
+           hint: 'Fast and cheap. Great for atmospheric B-roll and landscapes.' },
+  wan:   { id: 'fal-ai/wan-i2v',                          label: 'Wan 2.1',    price5: 0.10, price10: 0.20,
+           hint: 'Good middle ground. Handles general motion well.' },
+  kling: { id: 'fal-ai/kling-video/v1.6/standard/image-to-video', label: 'Kling 1.6', price5: 0.28, price10: 0.56,
+           hint: 'Best quality for people, faces and complex motion. Most expensive.' }
+};
 
 /* ── DEMO SCRIPT ── */
 const DEMO = `CRIME & PSYCHE WITH DREA
@@ -561,16 +575,21 @@ function updateCost() {
   const n = Math.max(1, parseInt(document.getElementById('segCount').value) || 1);
   const q = document.getElementById('imgQuality').value;
   const durEl = document.getElementById('vidDuration');
-  const dur = durEl ? durEl.value || '6' : '6';
+  const dur = durEl ? (durEl.value || '5') : '5';
+  const modelEl = document.getElementById('vidModel');
+  const modelKey = modelEl ? modelEl.value : 'ltx';
+  const model = VID_MODELS[modelKey] || VID_MODELS.ltx;
+  const hintEl = document.getElementById('modelHint');
+  if (hintEl) hintEl.textContent = model.hint;
   const imgPrice = IMG_PRICES[q] || 0.003;
-  const vidPrice = VID_PRICES[dur] || 0.24;
+  const vidPrice = dur === '10' ? model.price10 : model.price5;
   let cost = 0, detail = '';
   if (outputType === 'photos') {
     cost = n * imgPrice;
     detail = n + ' images × $' + imgPrice.toFixed(3);
   } else if (outputType === 'videos') {
     cost = n * vidPrice;
-    detail = n + ' videos × $' + vidPrice.toFixed(2) + ' (' + dur + 's)';
+    detail = n + ' × ' + model.label + ' $' + vidPrice.toFixed(2) + ' (' + dur + 's)';
   } else {
     cost = n * imgPrice + n * vidPrice;
     detail = n + ' images + ' + n + ' videos';
@@ -698,19 +717,43 @@ async function generateVideo(imageUrl, prompt) {
   // Official FAL client handles submit, polling and result retrieval internally
   window.falClient.config({ credentials: getKey() });
 
-  const MODEL = 'fal-ai/kling-video/v1.6/standard/image-to-video';
+  const modelEl = document.getElementById('vidModel');
+  const modelKey = modelEl ? modelEl.value : 'ltx';
+  const modelCfg = VID_MODELS[modelKey] || VID_MODELS.ltx;
+  const MODEL = modelCfg.id;
   const durEl = document.getElementById('vidDuration');
   const dur = durEl ? (durEl.value || '5') : '5';
 
   console.log('Submitting to', MODEL);
 
-  const result = await window.falClient.subscribe(MODEL, {
-    input: {
+  // Each model takes slightly different parameters
+  let input;
+  if (modelKey === 'kling') {
+    input = {
       prompt: prompt,
       image_url: imageUrl,
       duration: dur,
       aspect_ratio: aspectRatio === 'portrait' ? '9:16' : '16:9'
-    },
+    };
+  } else if (modelKey === 'wan') {
+    input = {
+      prompt: prompt,
+      image_url: imageUrl,
+      num_frames: dur === '10' ? 161 : 81,
+      resolution: '720p'
+    };
+  } else {
+    // LTX
+    input = {
+      prompt: prompt,
+      image_url: imageUrl,
+      num_frames: dur === '10' ? 241 : 121,
+      resolution: aspectRatio === 'portrait' ? '720p' : '720p'
+    };
+  }
+
+  const result = await window.falClient.subscribe(MODEL, {
+    input,
     logs: false,
     onQueueUpdate: (update) => {
       console.log('Video status:', update.status);
